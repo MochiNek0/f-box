@@ -53,7 +53,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onOpenSettings }) => {
             step="0.05"
             value={opacity}
             onChange={handleOpacityChange}
-            className="w-24 h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
+            className="w-24 h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-orange-500 outline-none"
           />
           <span className="text-[10px] text-zinc-500 w-6">
             {Math.round(opacity * 100)}%

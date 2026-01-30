@@ -56,9 +56,9 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
           <button
             onClick={() => backToLibrary(id)}
             className="p-1.5 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-white transition-all flex items-center gap-2 outline-none"
+            title="返回库"
           >
             <ArrowLeft size={16} />
-            <span className="text-xs font-medium">返回库</span>
           </button>
           <div className="h-4 w-px bg-zinc-800" />
           <div className="text-[10px] text-zinc-500 truncate max-w-[300px]">
