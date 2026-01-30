@@ -18,7 +18,7 @@ export const TabBar: React.FC = () => {
           key={tab.id}
           onClick={() => setActiveTab(tab.id)}
           className={cn(
-            "group relative flex items-center min-w-[120px] max-w-[200px] h-8 px-3 rounded-t-lg transition-all cursor-pointer",
+            "group relative flex items-center min-w-[100px] max-w-[200px] h-8 px-3 rounded-t-lg transition-all cursor-pointer flex-shrink-0",
             activeTabId === tab.id
               ? "bg-zinc-800 text-zinc-100"
               : "bg-zinc-900/50 text-zinc-500 hover:bg-zinc-800/80 hover:text-zinc-300",

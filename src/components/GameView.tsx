@@ -51,42 +51,42 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
   return (
     <div className="flex flex-col h-full bg-zinc-950 overflow-hidden relative">
       {/* Toolbar */}
-      <div className="h-10 bg-zinc-900/80 backdrop-blur-md flex items-center justify-between px-4 border-b border-zinc-800 absolute top-0 left-0 right-0 z-10 transition-opacity">
-        <div className="flex items-center gap-4">
+      <div className="h-10 bg-zinc-900/80 backdrop-blur-md flex items-center justify-between px-2 md:px-4 border-b border-zinc-800 absolute top-0 left-0 right-0 z-10 transition-opacity">
+        <div className="flex items-center gap-2 md:gap-4 flex-shrink">
           <button
             onClick={() => backToLibrary(id)}
-            className="p-1.5 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-white transition-all flex items-center gap-2 outline-none"
+            className="p-1.5 rounded-md bg-transparent hover:bg-zinc-800 text-zinc-400 hover:text-white transition-all flex items-center gap-2 outline-none flex-shrink-0"
             title="返回库"
           >
             <ArrowLeft size={16} />
           </button>
-          <div className="h-4 w-px bg-zinc-800" />
-          <div className="text-[10px] text-zinc-500 truncate max-w-[300px]">
+          <div className="h-4 w-px bg-zinc-800 hidden md:block" />
+          <div className="text-[10px] text-zinc-500 truncate max-w-[150px] md:max-w-[300px] hidden sm:block">
             {url}
           </div>
         </div>
 
-        <div className="flex items-center gap-1 bg-zinc-800/50 p-1 rounded-lg">
+        <div className="flex items-center gap-1 bg-zinc-800/50 p-1 rounded-lg flex-shrink-0">
           <button
             onClick={() => handleZoom(-0.1)}
-            className="p-1 rounded-md hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all outline-none"
+            className="p-1 rounded-md bg-transparent hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all outline-none"
             title="缩小"
           >
             <ZoomOut size={16} />
           </button>
-          <div className="w-12 text-center text-[10px] font-bold text-zinc-300">
+          <div className="w-8 md:w-12 text-center text-[10px] font-bold text-zinc-300">
             {Math.round(zoomFactor * 100)}%
           </div>
           <button
             onClick={() => handleZoom(0.1)}
-            className="p-1 rounded-md hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all outline-none"
+            className="p-1 rounded-md bg-transparent hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all outline-none"
             title="放大"
           >
             <ZoomIn size={16} />
           </button>
           <button
             onClick={resetZoom}
-            className="p-1 rounded-md hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all outline-none"
+            className="p-1 rounded-md bg-transparent hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all outline-none"
             title="重置缩放"
           >
             <RefreshCw size={14} />

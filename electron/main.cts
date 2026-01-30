@@ -72,6 +72,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
+    minWidth: 270,
     frame: false, // Frameless window
     transparent: false, // Start as non-transparent
     icon: path.join(__dirname, "..", "public", "icon.ico"),
