@@ -18,35 +18,66 @@ let currentBossKey: string = "Escape";
 // Configure Flash Plugin via System Search
 function findSystemFlashPlugin(): string | null {
   let searchPaths: string[] = [];
+  let flashFileName = "";
 
-  // On Windows 64-bit:
-  // System32 contains 64-bit binaries
-  // SysWOW64 contains 32-bit binaries
-  if (process.arch === "x64") {
-    searchPaths = [path.join("C:", "Windows", "System32", "Macromed", "Flash")];
-  } else {
-    // ia32 (32-bit)
-    searchPaths = [path.join("C:", "Windows", "SysWOW64", "Macromed", "Flash")];
-    // Fallback for 32-bit Windows
-    searchPaths.push(
-      path.join("C:", "Windows", "System32", "Macromed", "Flash"),
-    );
+  if (process.platform === "win32") {
+    flashFileName = "pepflashplayer*.dll";
+    if (process.arch === "x64") {
+      searchPaths = [
+        path.join("C:", "Windows", "System32", "Macromed", "Flash"),
+      ];
+    } else {
+      searchPaths = [
+        path.join("C:", "Windows", "SysWOW64", "Macromed", "Flash"),
+        path.join("C:", "Windows", "System32", "Macromed", "Flash"),
+      ];
+    }
+  } else if (process.platform === "darwin") {
+    // macOS
+    flashFileName = "PepperFlashPlayer.plugin";
+    searchPaths = [
+      "/Library/Internet Plug-Ins/PepperFlashPlayer/PepperFlashPlayer.plugin",
+      path.join(
+        app.getPath("userData"),
+        "PepperFlash",
+        "PepperFlashPlayer.plugin",
+      ),
+    ];
+  } else if (process.platform === "linux") {
+    // Linux
+    flashFileName = "libpepflashplayer.so";
+    searchPaths = [
+      "/usr/lib/adobe-flashplugin/libpepflashplayer.so",
+      "/usr/lib/pepperflashplugin-nonfree/libpepflashplayer.so",
+      "/usr/lib/PepperFlash/libpepflashplayer.so",
+      "/opt/google/chrome/PepperFlash/libpepflashplayer.so",
+    ];
   }
 
-  console.log(`Searching for Flash (${process.arch}) in:`, searchPaths);
+  console.log(
+    `Searching for Flash (${process.platform} ${process.arch}) in:`,
+    searchPaths,
+  );
 
   for (const dir of searchPaths) {
     if (fs.existsSync(dir)) {
+      // If the path itself is the plugin (macOS .plugin is a directory)
+      if (process.platform === "darwin" && dir.endsWith(".plugin")) {
+        return dir;
+      }
+
       try {
         const files = fs.readdirSync(dir);
-        // Look for pepflashplayer*.dll
-        // x64 usually named pepflashplayer64_*.dll
-        // x86 usually named pepflashplayer32_*.dll
-        const flashDll = files.find(
-          (file) => file.startsWith("pepflashplayer") && file.endsWith(".dll"),
-        );
-        if (flashDll) {
-          return path.join(dir, flashDll);
+        const flashFile = files.find((file) => {
+          if (flashFileName.includes("*")) {
+            const pattern = new RegExp(flashFileName.replace("*", ".*"));
+            return pattern.test(file);
+          }
+          return file === flashFileName;
+        });
+
+        if (flashFile) {
+          return path.join(dir, flashFile);
         }
       } catch (e) {
         console.error(`Error reading ${dir}:`, e);
