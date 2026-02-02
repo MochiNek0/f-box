@@ -49,6 +49,12 @@ npm run dist
 
 # 生成便携版 (Single Executable)
 npm run dist:portable
+
+# 生成 macOS 安装包
+npm run dist:mac
+
+# 生成 Linux 安装包
+npm run dist:linux
 ```
 
 ## 📖 使用说明
