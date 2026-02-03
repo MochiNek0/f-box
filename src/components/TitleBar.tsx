@@ -1,18 +1,7 @@
 import React, { useState, useEffect } from "react";
-import {
-  Minus,
-  Square,
-  X,
-  Settings,
-  SunDim,
-  Menu as MenuIcon,
-} from "lucide-react";
+import { Minus, Square, X, SunDim, Menu as MenuIcon } from "lucide-react";
 
-interface TitleBarProps {
-  onOpenSettings: () => void;
-}
-
-export const TitleBar: React.FC<TitleBarProps> = ({ onOpenSettings }) => {
+export const TitleBar: React.FC = () => {
   const [opacity, setOpacity] = useState(1);
   const [isCompact, setIsCompact] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -58,18 +47,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onOpenSettings }) => {
         className="flex items-center h-full no-drag"
         style={{ WebkitAppRegion: "no-drag" } as any}
       >
-        {/* Settings Button */}
-        <button
-          onClick={onOpenSettings}
-          className="h-full px-3 flex bg-transparent items-center cursor-pointer group outline-none"
-          title="设置"
-        >
-          <Settings
-            size={14}
-            className="text-zinc-500 group-hover:text-white"
-          />
-        </button>
-
         {/* Opacity Slider */}
         <div className="flex items-center gap-2 px-3 border-r border-zinc-800">
           <SunDim size={14} className="text-zinc-500" />

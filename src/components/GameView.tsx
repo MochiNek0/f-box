@@ -16,19 +16,35 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
   useEffect(() => {
     if (webviewRef.current) {
       const webview = webviewRef.current;
-      const onDomReady = () => {
-        webview.setZoomFactor(zoomFactor);
+
+      const applyZoom = () => {
+        try {
+          webview.setZoomFactor(zoomFactor);
+        } catch (e) {
+          console.warn("Failed to set zoom factor:", e);
+        }
       };
+
+      const onDomReady = () => {
+        applyZoom();
+      };
+
+      const onDidFinishLoad = () => {
+        applyZoom();
+      };
+
       webview.addEventListener("dom-ready", onDomReady);
+      webview.addEventListener("did-finish-load", onDidFinishLoad);
+
       return () => {
         webview.removeEventListener("dom-ready", onDomReady);
+        webview.removeEventListener("did-finish-load", onDidFinishLoad);
       };
     }
-  }, []);
+  }, [id, url]); // Re-bind if id or url changes significantly, though usually id is enough
 
   useEffect(() => {
     if (webviewRef.current) {
-      // webview might not be ready immediately, but usually is by the time zoom changes
       try {
         webviewRef.current.setZoomFactor(zoomFactor);
       } catch (e) {
@@ -43,10 +59,6 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
   };
 
   const resetZoom = () => updateZoom(id, 1);
-
-  // const reload = () => {
-  //   if (webviewRef.current) webviewRef.current.reload();
-  // };
 
   return (
     <div className="flex flex-col h-full bg-zinc-950 overflow-hidden relative">
