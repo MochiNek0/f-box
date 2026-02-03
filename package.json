@@ -64,7 +64,16 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": false,
       "deleteAppDataOnUninstall": true
-    }
+    },
+    "extraResources": [
+      {
+        "from": "public/assets/ahk.exe",
+        "to": "ahk.exe"
+      }
+    ],
+    "asarUnpack": [
+      "ahk.exe"
+    ]
   },
   "dependencies": {
     "clsx": "^2.1.1",

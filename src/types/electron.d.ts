@@ -4,6 +4,14 @@ export interface IElectronAPI {
   checkFlash: () => Promise<boolean>;
   updateBossKey: (key: string) => void;
   openExternal: (url: string) => void;
+  getKeymapConfig: () => Promise<{
+    enabled: boolean;
+    mappings: Array<{ source: string; target: string }>;
+  }>;
+  saveKeymapConfig: (config: {
+    enabled: boolean;
+    mappings: Array<{ source: string; target: string }>;
+  }) => void;
 }
 
 declare global {
