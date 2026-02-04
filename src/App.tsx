@@ -1,17 +1,16 @@
 import React, { useState, useEffect } from "react";
-import { TitleBar } from "./components/TitleBar";
-import { TabBar } from "./components/TabBar";
-import { GameLibrary } from "./components/GameLibrary";
-import { GameView } from "./components/GameView";
-import { FlashTutorial } from "./components/FlashTutorial";
-import { Settings } from "./components/Settings";
-import { Sidebar } from "./components/Sidebar";
+import { TitleBar } from "./components/app/TitleBar";
+import { TabBar } from "./components/app/TabBar";
+import { GameLibrary } from "./components/app/GameLibrary";
+import { GameView } from "./components/app/GameView";
+import { FlashTutorial } from "./components/app/FlashTutorial";
+import { Settings } from "./components/app/Settings";
 import { useTabStore } from "./store/useTabStore";
 import { useSettingsStore } from "./store/useSettingsStore";
 
 const App: React.FC = () => {
   const [hasFlash, setHasFlash] = useState<boolean | null>(null);
-  const [activeView, setActiveView] = useState<"game" | "settings">("game");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const { tabs, activeTabId } = useTabStore();
   const { bossKey } = useSettingsStore();
 
@@ -44,47 +43,43 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden text-zinc-100 bg-zinc-950">
-      <TitleBar />
+      <TitleBar onSettingsClick={() => setIsSettingsOpen(true)} />
 
       <div className="flex flex-grow overflow-hidden">
-        {hasFlash && (
-          <Sidebar activeView={activeView} onViewChange={setActiveView} />
-        )}
-
         <div className="flex-grow flex flex-col relative overflow-hidden">
           {!hasFlash ? (
             <FlashTutorial />
           ) : (
             <>
-              {activeView === "game" ? (
-                <>
-                  <TabBar />
-                  <main className="flex-grow flex flex-col relative overflow-hidden">
-                    {tabs.map((tab) => (
-                      <div
-                        key={tab.id}
-                        className={`absolute inset-0 flex flex-col transition-opacity duration-200 ${
-                          tab.id === activeTabId
-                            ? "opacity-100 z-10"
-                            : "opacity-0 z-0 pointer-events-none"
-                        }`}
-                      >
-                        {tab.isLibrary ? (
-                          <GameLibrary />
-                        ) : (
-                          <GameView id={tab.id} url={tab.url} />
-                        )}
-                      </div>
-                    ))}
-                  </main>
-                </>
-              ) : (
-                <Settings />
-              )}
+              <TabBar />
+              <main className="flex-grow flex flex-col relative overflow-hidden">
+                {tabs.map((tab) => (
+                  <div
+                    key={tab.id}
+                    className={`absolute inset-0 flex flex-col transition-opacity duration-200 ${
+                      tab.id === activeTabId
+                        ? "opacity-100 z-10"
+                        : "opacity-0 z-0 pointer-events-none"
+                    }`}
+                  >
+                    {tab.isLibrary ? (
+                      <GameLibrary />
+                    ) : (
+                      <GameView id={tab.id} url={tab.url} />
+                    )}
+                  </div>
+                ))}
+              </main>
             </>
           )}
         </div>
       </div>
+
+      {/* Settings Modal */}
+      <Settings
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+      />
     </div>
   );
 };

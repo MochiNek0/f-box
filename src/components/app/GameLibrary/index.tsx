@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { useTabStore } from "../store/useTabStore";
+import { useTabStore } from "../../../store/useTabStore";
 import { Plus, Trash2, ExternalLink, ShieldCheck } from "lucide-react";
+import { Modal } from "../../common/Modal";
+import { Button } from "../../common/Button";
+import { Input } from "../../common/Input";
+import { IconButton } from "../../common/IconButton";
 
 interface GameItem {
   id: string;
@@ -76,13 +80,14 @@ export const GameLibrary: React.FC = () => {
           </h1>
           <p className="text-zinc-500 mt-1">点击卡片即可启动 Flash 游戏</p>
         </div>
-        <button
+        <Button
           onClick={() => setShowAddForm(true)}
-          className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-4 py-2 rounded-lg transition-all outline-none"
+          variant="secondary"
+          className="flex items-center gap-2"
         >
           <Plus size={18} />
           <span>添加游戏</span>
-        </button>
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -120,12 +125,11 @@ export const GameLibrary: React.FC = () => {
 
             <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity">
               {game.id.startsWith("custom-") && (
-                <button
+                <IconButton
+                  icon={<Trash2 size={16} />}
                   onClick={(e) => removeGame(e, game.id)}
-                  className="p-1.5 text-zinc-500 hover:text-red-400 outline-none"
-                >
-                  <Trash2 size={16} />
-                </button>
+                  variant="danger"
+                />
               )}
             </div>
 
@@ -138,57 +142,43 @@ export const GameLibrary: React.FC = () => {
       </div>
 
       {/* Add Form Modal */}
-      {showAddForm && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-2xl w-full max-w-md shadow-2xl overflow-auto h-[calc(100vh-1rem)]">
-            <h2 className="text-xl font-bold text-zinc-100 mb-6">
-              添加自定义游戏
-            </h2>
-            <form onSubmit={handleAddGame} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">
-                  游戏名称
-                </label>
-                <input
-                  type="text"
-                  autoFocus
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="例如: 森林冰火人"
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200 focus:outline-none focus:border-orange-500 transition-colors max-md:px-2 max-md:py-2"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">
-                  游戏 URL
-                </label>
-                <input
-                  type="url"
-                  value={newUrl}
-                  onChange={(e) => setNewUrl(e.target.value)}
-                  placeholder="https://..."
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200 focus:outline-none focus:border-orange-500 transition-colors max-md:px-2 max-md:py-2"
-                />
-              </div>
-              <div className="flex gap-4 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowAddForm(false)}
-                  className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium py-3 rounded-xl transition-all max-md:py-2 outline-none"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 bg-orange-500 hover:bg-orange-600 text-white font-medium py-3 rounded-xl transition-all max-md:py-2 outline-none"
-                >
-                  添加
-                </button>
-              </div>
-            </form>
+      <Modal
+        isOpen={showAddForm}
+        onClose={() => setShowAddForm(false)}
+        showCloseButton={false}
+      >
+        <h2 className="text-xl font-bold text-zinc-100 mb-6">添加自定义游戏</h2>
+        <form onSubmit={handleAddGame} className="space-y-4">
+          <Input
+            type="text"
+            autoFocus
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="例如: 森林冰火人"
+            label="游戏名称"
+          />
+          <Input
+            type="url"
+            value={newUrl}
+            onChange={(e) => setNewUrl(e.target.value)}
+            placeholder="https://..."
+            label="游戏 URL"
+          />
+          <div className="flex gap-4 pt-4">
+            <Button
+              type="button"
+              onClick={() => setShowAddForm(false)}
+              variant="secondary"
+              fullWidth
+            >
+              取消
+            </Button>
+            <Button type="submit" variant="primary" fullWidth>
+              添加
+            </Button>
           </div>
-        </div>
-      )}
+        </form>
+      </Modal>
     </div>
   );
 };

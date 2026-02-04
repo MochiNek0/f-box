@@ -1,8 +1,9 @@
 import React from "react";
-import { useTabStore } from "../store/useTabStore";
+import { useTabStore } from "../../../store/useTabStore";
 import { Plus, X, Gamepad2, Library } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { IconButton } from "../../common/IconButton";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -34,15 +35,15 @@ export const TabBar: React.FC = () => {
           <span className="text-xs truncate flex-grow mr-2 select-none">
             {tab.title}
           </span>
-          <button
+          <IconButton
+            icon={<X size={12} />}
             onClick={(e) => {
               e.stopPropagation();
               closeTab(tab.id);
             }}
-            className="p-0.5 rounded-md bg-zinc-700 hover:bg-zinc-600 outline-none"
-          >
-            <X size={12} />
-          </button>
+            size="sm"
+            className="bg-zinc-700 hover:bg-zinc-600"
+          />
 
           {/* Active indicator */}
           {activeTabId === tab.id && (
@@ -51,12 +52,11 @@ export const TabBar: React.FC = () => {
         </div>
       ))}
 
-      <button
+      <IconButton
+        icon={<Plus size={16} />}
         onClick={addTab}
-        className="mb-1 p-1.5 rounded-md text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200 transition-all ml-1 outline-none"
-      >
-        <Plus size={16} />
-      </button>
+        className="mb-1 ml-1"
+      />
     </div>
   );
 };
