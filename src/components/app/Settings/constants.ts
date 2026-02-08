@@ -38,12 +38,29 @@ export const KEY_GROUPS = {
     "Numpad8",
     "Numpad9",
     "NumpadAdd",
-    "NumpadSubtract",
-    "NumpadMultiply",
-    "NumpadDivide",
-    "NumpadDecimal",
+    "NumpadSub",
+    "NumpadMult",
+    "NumpadDiv",
+    "NumpadDot",
     "NumpadEnter",
   ],
   Letters: Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)),
   Numbers: Array.from({ length: 10 }, (_, i) => String(i)),
+  Gamepad: (() => {
+    const keys: string[] = [];
+    // Support up to 16 gamepads (AutoHotKey standard)
+    for (let gamepadIndex = 1; gamepadIndex <= 16; gamepadIndex++) {
+      // Buttons: 1Joy1 to 16Joy32
+      for (let button = 1; button <= 32; button++) {
+        keys.push(`${gamepadIndex}Joy${button}`);
+      }
+      // Axes with direction: 1JoyX+, 1JoyX-, etc.
+      const axes = ["X", "Y", "Z", "R", "U", "V"];
+      for (const axis of axes) {
+        keys.push(`${gamepadIndex}Joy${axis}+`);
+        keys.push(`${gamepadIndex}Joy${axis}-`);
+      }
+    }
+    return keys;
+  })(),
 };

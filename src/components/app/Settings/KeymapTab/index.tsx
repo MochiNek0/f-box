@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Plus, Trash2, Power, Save, ArrowRight } from "lucide-react";
 import { Button } from "../../../common/Button";
 import { IconButton } from "../../../common/IconButton";
@@ -70,6 +70,71 @@ export const KeymapTab: React.FC = () => {
     }
     return () => window.removeEventListener("keydown", handleGlobalKeyDown);
   }, [recordingIndex]);
+
+  // Gamepad polling
+  const requestRef = useRef<number | null>(null);
+
+  const pollGamepads = () => {
+    if (!recordingIndex) return;
+
+    const gamepads = navigator.getGamepads();
+    for (let gamepadIdx = 0; gamepadIdx < gamepads.length; gamepadIdx++) {
+      const gamepad = gamepads[gamepadIdx];
+      if (!gamepad) continue;
+
+      // Gamepad index for AHK (1-indexed)
+      const gamepadNumber = gamepadIdx + 1;
+
+      // Check buttons
+      for (let i = 0; i < gamepad.buttons.length; i++) {
+        const button = gamepad.buttons[i];
+        if (button.pressed || button.value > 0.5) {
+          // Format: 1Joy1, 2Joy5, etc.
+          const key = `${gamepadNumber}Joy${i + 1}`;
+
+          const newMappings = [...keymapConfig.mappings];
+          newMappings[recordingIndex.index][recordingIndex.type] = key;
+
+          setKeymapConfig({ ...keymapConfig, mappings: newMappings });
+          setRecordingIndex(null);
+          return; // Stop polling once found
+        }
+      }
+
+      // Check axes (joystick movements)
+      // Axes mapping: [0]=X, [1]=Y, [2]=Z, [3]=R, [4]=U, [5]=V
+      const axisNames = ["X", "Y", "Z", "R", "U", "V"];
+      for (let i = 0; i < Math.min(gamepad.axes.length, 6); i++) {
+        const axisValue = gamepad.axes[i];
+        // Detect significant movement (threshold 0.5)
+        if (Math.abs(axisValue) > 0.5) {
+          // Determine direction: positive (+) or negative (-)
+          const direction = axisValue > 0 ? "+" : "-";
+          // Format: 1JoyX+, 1JoyX-, 2JoyY+, etc.
+          const key = `${gamepadNumber}Joy${axisNames[i]}${direction}`;
+
+          const newMappings = [...keymapConfig.mappings];
+          newMappings[recordingIndex.index][recordingIndex.type] = key;
+
+          setKeymapConfig({ ...keymapConfig, mappings: newMappings });
+          setRecordingIndex(null);
+          return; // Stop polling once found
+        }
+      }
+    }
+    requestRef.current = requestAnimationFrame(pollGamepads);
+  };
+
+  useEffect(() => {
+    if (recordingIndex) {
+      requestRef.current = requestAnimationFrame(pollGamepads);
+    }
+    return () => {
+      if (requestRef.current !== null) {
+        cancelAnimationFrame(requestRef.current);
+      }
+    };
+  }, [recordingIndex, keymapConfig]);
 
   const saveConfig = (newConfig = keymapConfig) => {
     window.electron.saveKeymapConfig(newConfig);
