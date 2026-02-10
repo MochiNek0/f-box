@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Plus, Trash2, Power, Save, ArrowRight } from "lucide-react";
 import { Button } from "../../../common/Button";
 import { IconButton } from "../../../common/IconButton";
@@ -70,6 +70,188 @@ export const KeymapTab: React.FC = () => {
     }
     return () => window.removeEventListener("keydown", handleGlobalKeyDown);
   }, [recordingIndex]);
+
+  // Helper to format key names for display
+  const formatKeyDisplay = (key: string) => {
+    if (!key) return null;
+
+    // Gamepad mapping visualization
+    const joyMatch = key.match(/^(\d+)Joy(.+)$/);
+    if (joyMatch) {
+      const pIdx = joyMatch[1];
+      let btn = joyMatch[2];
+
+      // Map button codes to symbols/names
+      const btnMap: Record<string, string> = {
+        DPAD_UP: "↑",
+        DPAD_DOWN: "↓",
+        DPAD_LEFT: "←",
+        DPAD_RIGHT: "→",
+        UP: "↑",
+        DOWN: "↓",
+        LEFT: "←",
+        RIGHT: "→",
+        "LX+": "L-Stick →",
+        "LX-": "L-Stick ←",
+        "LY+": "L-Stick ↑",
+        "LY-": "L-Stick ↓",
+        "RX+": "R-Stick →",
+        "RX-": "R-Stick ←",
+        "RY+": "R-Stick ↑",
+        "RY-": "R-Stick ↓",
+        Lt: "LT",
+        Rt: "RT",
+      };
+
+      if (btnMap[btn]) btn = btnMap[btn];
+
+      return (
+        <span className="inline-flex items-center gap-1">
+          <span className="opacity-50 text-[10px]">🎮 P{pIdx}</span>
+          <span className="font-bold">{btn}</span>
+        </span>
+      );
+    }
+
+    return key;
+  };
+
+  // Gamepad polling
+  const requestRef = useRef<number | null>(null);
+
+  const pollGamepads = () => {
+    if (!recordingIndex) return;
+
+    const gamepads = navigator.getGamepads();
+    for (let gamepadIdx = 0; gamepadIdx < gamepads.length; gamepadIdx++) {
+      const gamepad = gamepads[gamepadIdx];
+      if (!gamepad) continue;
+
+      // Gamepad index for AHK (1-indexed)
+      const gamepadNumber = gamepadIdx + 1;
+
+      // Check buttons
+      // Standard Mapping (approximate for XInput/W3C Standard Gamepad)
+      // 0:A, 1:B, 2:X, 3:Y, 4:LB, 5:RB, 6:LT, 7:RT, 8:Back, 9:Start, 10:LS, 11:RS, 12:Up, 13:Down, 14:Left, 15:Right
+      const buttonNames = [
+        "A",
+        "B",
+        "X",
+        "Y",
+        "LB",
+        "RB",
+        "LT",
+        "RT",
+        "BACK",
+        "START",
+        "LS",
+        "RS",
+        "DPAD_UP",
+        "DPAD_DOWN",
+        "DPAD_LEFT",
+        "DPAD_RIGHT",
+      ];
+
+      for (let i = 0; i < gamepad.buttons.length; i++) {
+        const button = gamepad.buttons[i];
+        if (button.pressed || button.value > 0.5) {
+          let keyName = "";
+
+          if (i < buttonNames.length) {
+            keyName = buttonNames[i];
+          } else {
+            keyName = `${i + 1}`; // Fallback to raw index if out of standard range
+          }
+
+          // Format: 1JoyA, 1JoyDPAD_UP, etc.
+          const key = `${gamepadNumber}Joy${keyName}`;
+
+          const newMappings = [...keymapConfig.mappings];
+          newMappings[recordingIndex.index][recordingIndex.type] = key;
+
+          setKeymapConfig({ ...keymapConfig, mappings: newMappings });
+          setRecordingIndex(null);
+          return; // Stop polling once found
+        }
+      }
+
+      // Check axes (joystick movements)
+      // Axes mapping: [0]=LeftX, [1]=LeftY, [2]=RightX, [3]=RightY
+      const axisNames = ["LX", "LY", "RX", "RY"];
+
+      for (let i = 0; i < Math.min(gamepad.axes.length, 4); i++) {
+        const axisValue = gamepad.axes[i];
+        // Detect significant movement (threshold 0.5)
+        if (Math.abs(axisValue) > 0.5) {
+          // Determine direction: positive (+) or negative (-)
+          // For Standard Gamepad:
+          // Axis 1 (LY) & 3 (RY): -1 is Up, +1 is Down.
+          // Axis 0 (LX) & 2 (RX): -1 is Left, +1 is Right.
+
+          let direction = "";
+          let axisName = axisNames[i];
+
+          // Reverse Y axis logic because AHK script expects:
+          // LY+ -> Physical Up (AHK) vs Web Standard Down (+)
+          // LY- -> Physical Down (AHK) vs Web Standard Up (-)
+          // Wait, checking AHK script again:
+          // case "LY+": return state.sThumbLY > 16000  ; XInput中 Y+ 是物理向上
+          // case "LY-": return state.sThumbLY < -16000 ; XInput中 Y- 是物理向下
+          //
+          // Web Gamepad API:
+          // Axis 1: -1 (Up), 1 (Down)
+          //
+          // So if Web Axis is < -0.5 (Up), we want to map to "LY+" for AHK?
+          // If Web Axis is > 0.5 (Down), we want to map to "LY-" for AHK?
+          // Let's re-read the AHK script carefully.
+          //
+          // Line 218: case "LY+": return state.sThumbLY > 16000  ; XInput中 Y+ 是物理向上
+          // Line 219: case "LY-": return state.sThumbLY < -16000 ; XInput中 Y- 是物理向下
+          //
+          // So "LY+" in AHK means Stick Up.
+          // In Web API, Stick Up is negative (-1).
+          // So if axisValue < -0.5, we should produce "LY+".
+
+          if (i === 1 || i === 3) {
+            // Y axes
+            if (axisValue < -0.5)
+              direction = "+"; // Up
+            else direction = "-"; // Down
+          } else {
+            // X axes (Standard: -1 Left, +1 Right)
+            // AHK:
+            // case "LX+": return state.sThumbLX > 16000 (Right)
+            // case "LX-": return state.sThumbLX < -16000 (Left)
+            if (axisValue > 0.5)
+              direction = "+"; // Right
+            else direction = "-"; // Left
+          }
+
+          // Format: 1JoyLX+, 1JoyLX-, etc.
+          const key = `${gamepadNumber}Joy${axisName}${direction}`;
+
+          const newMappings = [...keymapConfig.mappings];
+          newMappings[recordingIndex.index][recordingIndex.type] = key;
+
+          setKeymapConfig({ ...keymapConfig, mappings: newMappings });
+          setRecordingIndex(null);
+          return; // Stop polling once found
+        }
+      }
+    }
+    requestRef.current = requestAnimationFrame(pollGamepads);
+  };
+
+  useEffect(() => {
+    if (recordingIndex) {
+      requestRef.current = requestAnimationFrame(pollGamepads);
+    }
+    return () => {
+      if (requestRef.current !== null) {
+        cancelAnimationFrame(requestRef.current);
+      }
+    };
+  }, [recordingIndex, keymapConfig]);
 
   const saveConfig = (newConfig = keymapConfig) => {
     window.electron.saveKeymapConfig(newConfig);
@@ -149,7 +331,7 @@ export const KeymapTab: React.FC = () => {
                   {recordingIndex?.index === index &&
                   recordingIndex.type === "source"
                     ? "请按键..."
-                    : mapping.source || "点击录入 / 右键选择"}
+                    : formatKeyDisplay(mapping.source) || "点击录入 / 右键选择"}
 
                   <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl pointer-events-none" />
 
@@ -193,7 +375,7 @@ export const KeymapTab: React.FC = () => {
                   {recordingIndex?.index === index &&
                   recordingIndex.type === "target"
                     ? "请按键..."
-                    : mapping.target || "点击录入 / 右键选择"}
+                    : formatKeyDisplay(mapping.target) || "点击录入 / 右键选择"}
 
                   <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl pointer-events-none" />
 
