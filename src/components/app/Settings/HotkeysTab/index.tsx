@@ -36,10 +36,24 @@ export const HotkeysTab: React.FC = () => {
 
   useEffect(() => {
     if (isRecording) {
+      window.electron.suspendBossKey();
       window.addEventListener("keydown", handleGlobalKeyDown);
+    } else {
+      // Small delay to ensure the key release doesn't trigger the boss key immediately if it was the boss key itself
+      // (though usually resumeBossKey just re-registers, it doesn't trigger)
+      window.electron.resumeBossKey();
     }
-    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleGlobalKeyDown);
+    };
   }, [isRecording]);
+
+  // Ensure Boss Key is resumed when component unmounts if it was recording
+  useEffect(() => {
+    return () => {
+      window.electron.resumeBossKey();
+    };
+  }, []);
 
   return (
     <section className="bg-zinc-800/30 p-6 rounded-2xl border border-zinc-800/50">

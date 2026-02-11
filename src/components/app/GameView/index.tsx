@@ -107,7 +107,7 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
           <webview
             ref={webviewRef}
             src={url}
-            {...({ plugins: "true" } as any)} // Enable Flash
+            {...({ plugins: "true", allowpopups: "true" } as any)} // Enable Flash & Popups
             className="w-full h-full bg-black shadow-2xl"
             style={{ width: "1280px", height: "100%" }}
           />

@@ -324,6 +324,20 @@ app.on("ready", () => {
   startAHK();
   setupTray();
   registerBossKey(currentBossKey);
+
+  // Handle new window creation (for game popups like Seer login)
+  app.on("web-contents-created", (_event, contents) => {
+    // Electron 11 uses 'new-window' event
+    // @ts-ignore
+    contents.on("new-window", (e, url, frameName, disposition, options) => {
+      // Ensure new windows have correct settings
+      if (options && options.webPreferences) {
+        options.webPreferences.nodeIntegration = false;
+        options.webPreferences.contextIsolation = true;
+        options.webPreferences.plugins = true; // Enable Flash in popups
+      }
+    });
+  });
 });
 
 // IPC for updating Boss Key
@@ -358,6 +372,31 @@ ipcMain.on(
     startAHK();
   },
 );
+
+// IPC for suspending/resuming Boss Key
+ipcMain.on("suspend-boss-key", () => {
+  globalShortcut.unregisterAll();
+  console.log("Boss Key suspended");
+});
+
+ipcMain.on("resume-boss-key", () => {
+  registerBossKey(currentBossKey);
+  console.log("Boss Key resumed");
+});
+
+// IPC for suspending/resuming Keymapping (AHK)
+ipcMain.on("suspend-keymap", () => {
+  if (ahkProcess) {
+    ahkProcess.kill();
+    ahkProcess = null;
+    console.log("Keymap (AHK) suspended");
+  }
+});
+
+ipcMain.on("resume-keymap", () => {
+  startAHK();
+  console.log("Keymap (AHK) resumed");
+});
 
 app.on("before-quit", () => {
   if (ahkProcess) ahkProcess.kill();

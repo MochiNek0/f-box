@@ -12,6 +12,10 @@ export interface IElectronAPI {
     enabled: boolean;
     mappings: Array<{ source: string; target: string }>;
   }) => void;
+  suspendBossKey: () => void;
+  resumeBossKey: () => void;
+  suspendKeymap: () => void;
+  resumeKeymap: () => void;
 }
 
 declare global {

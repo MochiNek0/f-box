@@ -66,10 +66,22 @@ export const KeymapTab: React.FC = () => {
 
   useEffect(() => {
     if (recordingIndex) {
+      window.electron.suspendKeymap();
       window.addEventListener("keydown", handleGlobalKeyDown);
+    } else {
+      window.electron.resumeKeymap();
     }
-    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleGlobalKeyDown);
+    };
   }, [recordingIndex]);
+
+  // Ensure Keymap is resumed when component unmounts if it was recording
+  useEffect(() => {
+    return () => {
+      window.electron.resumeKeymap();
+    };
+  }, []);
 
   // Helper to format key names for display
   const formatKeyDisplay = (key: string) => {

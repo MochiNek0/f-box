@@ -13,4 +13,8 @@ contextBridge.exposeInMainWorld("electron", {
   getKeymapConfig: () => ipcRenderer.invoke("get-keymap-config"),
   saveKeymapConfig: (config: any) =>
     ipcRenderer.send("save-keymap-config", config),
+  suspendBossKey: () => ipcRenderer.send("suspend-boss-key"),
+  resumeBossKey: () => ipcRenderer.send("resume-boss-key"),
+  suspendKeymap: () => ipcRenderer.send("suspend-keymap"),
+  resumeKeymap: () => ipcRenderer.send("resume-keymap"),
 });
