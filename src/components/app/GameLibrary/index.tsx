@@ -26,6 +26,18 @@ const DEFAULT_GAMES: GameItem[] = [
     url: "https://17roco.qq.com/",
     icon: "https://17roco.qq.com/favicon.ico",
   },
+  {
+    id: "seer",
+    name: "赛尔号",
+    url: "https://h5-seer.61.com/?from=taomee",
+    icon: "https://game-res.61.com/seer/index/images/favicon.ico",
+  },
+  {
+    id: "aola",
+    name: "奥拉星",
+    url: "http://aola.100bt.com/",
+    icon: "https://aola.100bt.com/favicon.ico",
+  },
 ];
 
 export const GameLibrary: React.FC = () => {
