@@ -177,11 +177,11 @@ function startAHK() {
   if (!enabled) return;
 
   const ahkPath = app.isPackaged
-    ? path.join(process.resourcesPath, "ahk.exe")
-    : path.join(__dirname, "..", "public", "assets", "ahk.exe"); // dev 时路径
+    ? path.join(process.resourcesPath, "keymap.exe")
+    : path.join(__dirname, "..", "public", "assets", "keymap.exe"); // dev 时路径
 
   if (!fs.existsSync(ahkPath)) {
-    console.warn("ahk.exe 未找到，无法启动键盘映射");
+    console.warn("keymap.exe 未找到，无法启动键盘映射");
     return;
   }
 

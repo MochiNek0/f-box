@@ -67,12 +67,12 @@
     },
     "extraResources": [
       {
-        "from": "public/assets/ahk.exe",
-        "to": "ahk.exe"
+        "from": "public/assets/keymap.exe",
+        "to": "keymap.exe"
       }
     ],
     "asarUnpack": [
-      "ahk.exe"
+      "keymap.exe"
     ]
   },
   "dependencies": {
