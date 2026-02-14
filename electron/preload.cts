@@ -17,4 +17,28 @@ contextBridge.exposeInMainWorld("electron", {
   resumeBossKey: () => ipcRenderer.send("resume-boss-key"),
   suspendKeymap: () => ipcRenderer.send("suspend-keymap"),
   resumeKeymap: () => ipcRenderer.send("resume-keymap"),
+
+  // Automation API
+  automation: {
+    startRecord: (name: string) =>
+      ipcRenderer.invoke("automation-start-record", name),
+    stopRecord: () => ipcRenderer.invoke("automation-stop-record"),
+    startPlay: (name: string) =>
+      ipcRenderer.invoke("automation-start-play", name),
+    stopPlay: () => ipcRenderer.invoke("automation-stop-play"),
+    pickColor: () => ipcRenderer.invoke("automation-pick-color"),
+    listScripts: () => ipcRenderer.invoke("automation-list-scripts"),
+    deleteScript: (name: string) =>
+      ipcRenderer.invoke("automation-delete-script", name),
+    saveConfig: (name: string, config: any) =>
+      ipcRenderer.invoke("automation-save-config", name, config),
+    getConfig: (name: string) =>
+      ipcRenderer.invoke("automation-get-config", name),
+    onStatus: (callback: (status: string) => void) => {
+      ipcRenderer.on("automation-status", (_event, status) => callback(status));
+    },
+    offStatus: () => {
+      ipcRenderer.removeAllListeners("automation-status");
+    },
+  },
 });

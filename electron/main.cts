@@ -17,8 +17,12 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let currentBossKey: string = "Escape";
 let ahkProcess: any = null;
+let automationProcess: ChildProcess | null = null;
+let currentRecordingPath: string | null = null;
 const configDir = path.join(os.homedir(), ".f-box");
 const configPath = path.join(configDir, "keymap.ini");
+const scriptsDir = path.join(configDir, "scripts");
+const scriptsConfigDir = path.join(configDir, "scripts_config");
 
 // Configure Flash Plugin via System Search
 function findSystemFlashPlugin(): string | null {
@@ -398,8 +402,315 @@ ipcMain.on("resume-keymap", () => {
   console.log("Keymap (AHK) resumed");
 });
 
+// =================================================================
+// Automation IPC Handlers
+// =================================================================
+
+function getAutomationRuntime(): {
+  exe: string;
+  args: string[];
+  isAhk: boolean;
+} {
+  const possibleAhkPaths = [
+    "C:\\Program Files\\AutoHotkey\\v2\\AutoHotkey.exe",
+    "C:\\Program Files (x86)\\AutoHotkey\\v2\\AutoHotkey.exe",
+    path.join(
+      os.homedir(),
+      "AppData\\Local\\Programs\\AutoHotkey\\v2\\AutoHotkey.exe",
+    ),
+  ];
+
+  let ahkPath = "";
+  for (const p of possibleAhkPaths) {
+    if (fs.existsSync(p)) {
+      ahkPath = p;
+      break;
+    }
+  }
+
+  const ahkSourcePath = app.isPackaged
+    ? path.join(process.resourcesPath, "automation.ahk")
+    : path.join(__dirname, "..", "public", "assets", "automation.ahk");
+  const exePath = app.isPackaged
+    ? path.join(process.resourcesPath, "automation.exe")
+    : path.join(__dirname, "..", "public", "assets", "automation.exe");
+
+  if (!app.isPackaged && ahkPath && fs.existsSync(ahkSourcePath)) {
+    console.log("Using AHK Source:", ahkSourcePath);
+    return { exe: ahkPath, args: [ahkSourcePath], isAhk: true };
+  }
+
+  console.log("Using Automation EXE:", exePath);
+  return { exe: exePath, args: [], isAhk: false };
+}
+
+function ensureScriptDirs() {
+  if (!fs.existsSync(scriptsDir)) {
+    fs.mkdirSync(scriptsDir, { recursive: true });
+  }
+  if (!fs.existsSync(scriptsConfigDir)) {
+    fs.mkdirSync(scriptsConfigDir, { recursive: true });
+  }
+}
+
+function killAutomationProcess() {
+  if (automationProcess && !automationProcess.killed) {
+    try {
+      automationProcess.kill();
+    } catch (e) {
+      // ignore
+    }
+    automationProcess = null;
+  }
+}
+
+// Start Recording
+ipcMain.handle("automation-start-record", async (_event, name: string) => {
+  ensureScriptDirs();
+  killAutomationProcess();
+  const scriptPath = path.join(scriptsDir, `${name}.json`);
+  currentRecordingPath = scriptPath;
+
+  try {
+    const runtime = getAutomationRuntime();
+    if (!fs.existsSync(runtime.exe)) {
+      return { success: false, error: "未找到运行环境" };
+    }
+
+    const args = [...runtime.args, "record", scriptPath];
+    console.log("Spawning record:", runtime.exe, args.join(" "));
+    automationProcess = spawn(runtime.exe, args);
+
+    automationProcess.stdout?.on("data", (data: Buffer) => {
+      const lines = data
+        .toString()
+        .split("\n")
+        .filter((l: string) => l.trim());
+      for (const line of lines) {
+        mainWindow?.webContents.send("automation-status", line.trim());
+      }
+    });
+
+    automationProcess.stderr?.on("data", (data: Buffer) => {
+      console.error("Automation stderr:", data.toString());
+    });
+
+    automationProcess.on("exit", () => {
+      automationProcess = null;
+      mainWindow?.webContents.send("automation-status", "STATUS|PROCESS_EXIT");
+    });
+
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+});
+
+// Stop Recording
+ipcMain.handle("automation-stop-record", async () => {
+  if (currentRecordingPath) {
+    const stopFile = currentRecordingPath + ".stop";
+    try {
+      fs.writeFileSync(stopFile, "");
+      // Wait a bit for AHK to detect and exit
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    } catch (e) {
+      console.error("Error creating stop signal:", e);
+    }
+  }
+  killAutomationProcess();
+  currentRecordingPath = null;
+  return { success: true };
+});
+
+// Start Playing
+ipcMain.handle("automation-start-play", async (_event, name: string) => {
+  ensureScriptDirs();
+
+  const scriptPath = path.join(scriptsDir, `${name}.json`);
+  if (!fs.existsSync(scriptPath)) {
+    return { success: false, error: "脚本文件不存在" };
+  }
+
+  const configPath = path.join(scriptsConfigDir, `${name}.json`);
+  let repeatCount = 0;
+  try {
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      repeatCount = config.repeatCount || 0;
+    }
+  } catch (e) {
+    console.error("Error reading config for play:", e);
+  }
+
+  killAutomationProcess();
+
+  try {
+    const runtime = getAutomationRuntime();
+    if (!fs.existsSync(runtime.exe)) {
+      return {
+        success: false,
+        error: "未找到运行环境 (automation.exe 或 AutoHotkey v2)",
+      };
+    }
+
+    const args = [
+      ...runtime.args,
+      "play",
+      scriptPath,
+      configPath,
+      repeatCount.toString(),
+    ];
+    console.log("Spawning play:", runtime.exe, args.join(" "));
+    automationProcess = spawn(runtime.exe, args);
+
+    automationProcess.stdout?.on("data", (data: Buffer) => {
+      const lines = data
+        .toString()
+        .split("\n")
+        .filter((l: string) => l.trim());
+      for (const line of lines) {
+        mainWindow?.webContents.send("automation-status", line.trim());
+      }
+    });
+
+    automationProcess.stderr?.on("data", (data: Buffer) => {
+      console.error("Automation stderr:", data.toString());
+    });
+
+    automationProcess.on("exit", () => {
+      automationProcess = null;
+      mainWindow?.webContents.send("automation-status", "STATUS|PROCESS_EXIT");
+    });
+
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+});
+
+// Stop Playing
+ipcMain.handle("automation-stop-play", async () => {
+  killAutomationProcess();
+  return { success: true };
+});
+
+// Pick Color
+ipcMain.handle("automation-pick-color", async () => {
+  const runtime = getAutomationRuntime();
+  if (!fs.existsSync(runtime.exe)) {
+    return null;
+  }
+
+  killAutomationProcess();
+
+  // Minimize main window so user can pick
+  mainWindow?.minimize();
+
+  return new Promise((resolve) => {
+    const args = [...runtime.args, "pick"];
+    automationProcess = spawn(runtime.exe, args);
+    let result: { x: number; y: number; color: string } | null = null;
+
+    automationProcess.stdout?.on("data", (data: Buffer) => {
+      const lines = data
+        .toString()
+        .split("\n")
+        .filter((l: string) => l.trim());
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("PICKED|")) {
+          const parts = trimmed.split("|");
+          if (parts.length >= 4) {
+            result = {
+              x: parseInt(parts[1], 10),
+              y: parseInt(parts[2], 10),
+              color: parts[3],
+            };
+          }
+        }
+      }
+    });
+
+    automationProcess.on("exit", () => {
+      automationProcess = null;
+      // Restore main window
+      mainWindow?.show();
+      mainWindow?.focus();
+      resolve(result);
+    });
+
+    // Timeout after 60 seconds
+    setTimeout(() => {
+      if (automationProcess) {
+        killAutomationProcess();
+        mainWindow?.show();
+        mainWindow?.focus();
+        resolve(null);
+      }
+    }, 60000);
+  });
+});
+
+// List Scripts
+ipcMain.handle("automation-list-scripts", async () => {
+  ensureScriptDirs();
+  try {
+    const files = fs.readdirSync(scriptsDir);
+    return files
+      .filter((f: string) => f.endsWith(".json"))
+      .map((f: string) => f.replace(".json", ""));
+  } catch {
+    return [];
+  }
+});
+
+// Delete Script
+ipcMain.handle("automation-delete-script", async (_event, name: string) => {
+  ensureScriptDirs();
+  const scriptPath = path.join(scriptsDir, `${name}.json`);
+  const cfgPath = path.join(scriptsConfigDir, `${name}.json`);
+  try {
+    if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
+    if (fs.existsSync(cfgPath)) fs.unlinkSync(cfgPath);
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+});
+
+// Save Config
+ipcMain.handle(
+  "automation-save-config",
+  async (_event, name: string, config: any) => {
+    ensureScriptDirs();
+    const cfgPath = path.join(scriptsConfigDir, `${name}.json`);
+    try {
+      fs.writeFileSync(cfgPath, JSON.stringify(config, null, 2), "utf-8");
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  },
+);
+
+// Get Config
+ipcMain.handle("automation-get-config", async (_event, name: string) => {
+  ensureScriptDirs();
+  const cfgPath = path.join(scriptsConfigDir, `${name}.json`);
+  try {
+    if (fs.existsSync(cfgPath)) {
+      return JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+});
+
 app.on("before-quit", () => {
   if (ahkProcess) ahkProcess.kill();
+  killAutomationProcess();
 });
 
 app.on("window-all-closed", () => {

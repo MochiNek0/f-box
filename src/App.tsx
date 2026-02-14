@@ -5,12 +5,27 @@ import { GameLibrary } from "./components/app/GameLibrary";
 import { GameView } from "./components/app/GameView";
 import { FlashTutorial } from "./components/app/FlashTutorial";
 import { Settings } from "./components/app/Settings";
+import { RecorderToolbar } from "./components/app/RecorderToolbar";
 import { useTabStore } from "./store/useTabStore";
 import { useSettingsStore } from "./store/useSettingsStore";
 
 const App: React.FC = () => {
   const [hasFlash, setHasFlash] = useState<boolean | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isRecorderOpen, setIsRecorderOpen] = useState(false);
+  const [initialRecordName, setInitialRecordName] = useState("");
+
+  const handleOpenRecorder = (name: string) => {
+    setInitialRecordName(name);
+    setIsSettingsOpen(false);
+    setIsRecorderOpen(true);
+  };
+
+  const handleCloseRecorder = () => {
+    setIsRecorderOpen(false);
+    setIsSettingsOpen(true);
+    // Ideally we should switch to Automation tab, but for now just opening settings is a good start
+  };
   const { tabs, activeTabId } = useTabStore();
   const { bossKey } = useSettingsStore();
 
@@ -79,7 +94,15 @@ const App: React.FC = () => {
       <Settings
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+        onOpenRecorder={handleOpenRecorder}
       />
+      {/* Recorder Toolbar */}
+      {isRecorderOpen && (
+        <RecorderToolbar
+          initialName={initialRecordName}
+          onClose={handleCloseRecorder}
+        />
+      )}
     </div>
   );
 };

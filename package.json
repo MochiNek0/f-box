@@ -69,6 +69,10 @@
       {
         "from": "public/assets/keymap.exe",
         "to": "keymap.exe"
+      },
+      {
+        "from": "public/assets/automation.exe",
+        "to": "automation.exe"
       }
     ],
     "asarUnpack": [
