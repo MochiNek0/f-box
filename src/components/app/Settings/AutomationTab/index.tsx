@@ -5,7 +5,6 @@ import {
   Square,
   Trash2,
   Circle,
-  Crosshair,
   ChevronDown,
   ChevronUp,
   Save,
@@ -14,10 +13,12 @@ import { IconButton } from "../../../common/IconButton";
 
 interface AutomationTabProps {
   onOpenRecorder: (name: string) => void;
+  onClose: () => void;
 }
 
 export const AutomationTab: React.FC<AutomationTabProps> = ({
   onOpenRecorder,
+  onClose,
 }) => {
   const [scripts, setScripts] = useState<string[]>([]);
   const [recordName, setRecordName] = useState("");
@@ -28,11 +29,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
   const [statusMessage, setStatusMessage] = useState("");
   const [loopCount, setLoopCount] = useState(0);
 
-  // Stop condition config for expanded script
-  const [conditionEnabled, setConditionEnabled] = useState(false);
-  const [conditionX, setConditionX] = useState(0);
-  const [conditionY, setConditionY] = useState(0);
-  const [conditionColor, setConditionColor] = useState("#000000");
+  // Config for expanded script
   const [repeatCount, setRepeatCount] = useState(0);
 
   const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -106,16 +103,8 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
     if (expandedScript) {
       window.electron.automation.getConfig(expandedScript).then((config) => {
         if (config) {
-          setConditionEnabled(config.enabled || false);
-          setConditionX(config.x || 0);
-          setConditionY(config.y || 0);
-          setConditionColor(config.color || "#000000");
           setRepeatCount(config.repeatCount || 0);
         } else {
-          setConditionEnabled(false);
-          setConditionX(0);
-          setConditionY(0);
-          setConditionColor("#000000");
           setRepeatCount(0);
         }
       });
@@ -134,6 +123,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
     if (result.success) {
       setIsPlaying(true);
       setPlayingScript(name);
+      onClose(); // Close settings popup when playback starts
     } else {
       setStatusMessage(`❌ ${result.error}`);
     }
@@ -152,26 +142,9 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
     setStatusMessage(`已删除: ${name}`);
   };
 
-  const handlePickColor = async () => {
-    setStatusMessage("移动鼠标到目标位置，按 Space 确认，Esc 取消");
-    const result = await window.electron.automation.pickColor();
-    if (result) {
-      setConditionX(result.x);
-      setConditionY(result.y);
-      setConditionColor(result.color);
-      setStatusMessage(`已拾取: (${result.x}, ${result.y}) ${result.color}`);
-    } else {
-      setStatusMessage("已取消拾取");
-    }
-  };
-
   const handleSaveConfig = async () => {
     if (!expandedScript) return;
     const config: any = {
-      enabled: conditionEnabled,
-      x: conditionX,
-      y: conditionY,
-      color: conditionColor,
       repeatCount: repeatCount,
     };
     const result = await window.electron.automation.saveConfig(
@@ -179,7 +152,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
       config,
     );
     if (result.success) {
-      setStatusMessage("✅ 停止条件已保存");
+      setStatusMessage("✅ 配置已保存");
       if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
       statusTimeoutRef.current = setTimeout(() => setStatusMessage(""), 2000);
     }
@@ -290,7 +263,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
                           <ChevronDown size={14} />
                         )
                       }
-                      title="停止条件配置"
+                      title="配置"
                     />
 
                     {/* Delete */}
@@ -306,90 +279,6 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
                 {/* Expanded Config Panel */}
                 {expandedScript === name && (
                   <div className="px-4 pb-4 border-t border-zinc-800/50 pt-3 space-y-3">
-                    <div className="flex items-center gap-3">
-                      <label className="text-xs text-zinc-400 whitespace-nowrap">
-                        启用停止条件
-                      </label>
-                      <button
-                        onClick={() => setConditionEnabled(!conditionEnabled)}
-                        className={`relative w-10 h-5 rounded-full transition-colors ${
-                          conditionEnabled ? "bg-orange-500" : "bg-zinc-700"
-                        } outline-none`}
-                      >
-                        <div
-                          className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-                            conditionEnabled
-                              ? "translate-x-5"
-                              : "translate-x-0.5"
-                          }`}
-                        />
-                      </button>
-                    </div>
-
-                    {conditionEnabled && (
-                      <>
-                        <div className="grid grid-cols-3 gap-2">
-                          <div>
-                            <label className="text-[10px] text-zinc-500 block mb-1">
-                              X 坐标
-                            </label>
-                            <input
-                              type="number"
-                              value={conditionX}
-                              onChange={(e) =>
-                                setConditionX(parseInt(e.target.value, 10) || 0)
-                              }
-                              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-orange-500 transition-colors"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[10px] text-zinc-500 block mb-1">
-                              Y 坐标
-                            </label>
-                            <input
-                              type="number"
-                              value={conditionY}
-                              onChange={(e) =>
-                                setConditionY(parseInt(e.target.value, 10) || 0)
-                              }
-                              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-orange-500 transition-colors"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[10px] text-zinc-500 block mb-1">
-                              目标颜色
-                            </label>
-                            <div className="flex flex-col items-end gap-2">
-                              <input
-                                type="text"
-                                value={conditionColor}
-                                onChange={(e) =>
-                                  setConditionColor(e.target.value)
-                                }
-                                className="flex-grow bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-orange-500 transition-colors"
-                              />
-                              <div
-                                className="w-8 h-8 rounded-lg border border-zinc-600 shrink-0"
-                                style={{ backgroundColor: conditionColor }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex gap-2">
-                          <Button
-                            onClick={handlePickColor}
-                            variant="secondary"
-                            disabled={isRecording || isPlaying}
-                            className="flex items-center"
-                          >
-                            <Crosshair size={14} className="mr-1.5" />
-                            拾取位置和颜色
-                          </Button>
-                        </div>
-                      </>
-                    )}
-
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="text-xs text-zinc-400 block mb-2">
@@ -429,8 +318,8 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
       <div className="bg-zinc-800/20 rounded-xl p-4 border border-zinc-800/30">
         <p className="text-[10px] text-zinc-500 leading-relaxed">
           <span className="text-zinc-400 font-medium">使用说明：</span>{" "}
-          录制操作后，可设置停止条件（例如当指定屏幕位置的像素颜色匹配目标值时停止）。
-          播放时脚本将循环执行，直到停止条件满足或手动按 F10 停止。
+          录制操作后，可设置重复播放次数。
+          播放时脚本将循环执行，直到完成指定次数或手动按 F10 停止。
         </p>
       </div>
     </div>

@@ -1,8 +1,4 @@
-export interface StopConditionConfig {
-  enabled: boolean;
-  x: number;
-  y: number;
-  color: string;
+export interface AutomationConfig {
   repeatCount?: number;
 }
 
@@ -11,14 +7,13 @@ export interface AutomationAPI {
   stopRecord: () => Promise<{ success: boolean }>;
   startPlay: (name: string) => Promise<{ success: boolean; error?: string }>;
   stopPlay: () => Promise<{ success: boolean }>;
-  pickColor: () => Promise<{ x: number; y: number; color: string } | null>;
   listScripts: () => Promise<string[]>;
   deleteScript: (name: string) => Promise<{ success: boolean; error?: string }>;
   saveConfig: (
     name: string,
-    config: StopConditionConfig,
+    config: AutomationConfig,
   ) => Promise<{ success: boolean; error?: string }>;
-  getConfig: (name: string) => Promise<StopConditionConfig | null>;
+  getConfig: (name: string) => Promise<AutomationConfig | null>;
   onStatus: (callback: (status: string) => void) => void;
   offStatus: () => void;
 }

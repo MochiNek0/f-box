@@ -26,7 +26,6 @@ contextBridge.exposeInMainWorld("electron", {
     startPlay: (name: string) =>
       ipcRenderer.invoke("automation-start-play", name),
     stopPlay: () => ipcRenderer.invoke("automation-stop-play"),
-    pickColor: () => ipcRenderer.invoke("automation-pick-color"),
     listScripts: () => ipcRenderer.invoke("automation-list-scripts"),
     deleteScript: (name: string) =>
       ipcRenderer.invoke("automation-delete-script", name),

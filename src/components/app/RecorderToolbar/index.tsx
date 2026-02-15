@@ -18,12 +18,11 @@ export const RecorderToolbar: React.FC<RecorderToolbarProps> = ({
     window.electron.automation.onStatus((status: string) => {
       if (status === "STATUS|RECORDING") {
         setIsRecording(true);
-      } else if (
-        status === "STATUS|RECORD_DONE" ||
-        status === "STATUS|PROCESS_EXIT"
-      ) {
+      } else if (status === "STATUS|RECORD_DONE") {
         setIsRecording(false);
-        // Logic to close toolbar and reopen settings is handled by the stop button
+        onClose(); // Auto-close when recording is done (handles F10 stop)
+      } else if (status === "STATUS|PROCESS_EXIT") {
+        setIsRecording(false);
       }
     });
 

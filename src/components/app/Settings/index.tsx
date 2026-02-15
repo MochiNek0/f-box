@@ -43,7 +43,7 @@ export const Settings: React.FC<SettingsProps> = ({
           {activeTab === "hotkeys" && <HotkeysTab />}
           {activeTab === "keymap" && <KeymapTab />}
           {activeTab === "automation" && (
-            <AutomationTab onOpenRecorder={onOpenRecorder} />
+            <AutomationTab onOpenRecorder={onOpenRecorder} onClose={onClose} />
           )}
         </div>
       </div>

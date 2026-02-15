@@ -554,13 +554,8 @@ ipcMain.handle("automation-start-play", async (_event, name: string) => {
       };
     }
 
-    const args = [
-      ...runtime.args,
-      "play",
-      scriptPath,
-      configPath,
-      repeatCount.toString(),
-    ];
+    // AHK V2 script args: play <scriptFile> <maxLoops>
+    const args = [...runtime.args, "play", scriptPath, repeatCount.toString()];
     console.log("Spawning play:", runtime.exe, args.join(" "));
     automationProcess = spawn(runtime.exe, args);
 
@@ -593,63 +588,6 @@ ipcMain.handle("automation-start-play", async (_event, name: string) => {
 ipcMain.handle("automation-stop-play", async () => {
   killAutomationProcess();
   return { success: true };
-});
-
-// Pick Color
-ipcMain.handle("automation-pick-color", async () => {
-  const runtime = getAutomationRuntime();
-  if (!fs.existsSync(runtime.exe)) {
-    return null;
-  }
-
-  killAutomationProcess();
-
-  // Minimize main window so user can pick
-  mainWindow?.minimize();
-
-  return new Promise((resolve) => {
-    const args = [...runtime.args, "pick"];
-    automationProcess = spawn(runtime.exe, args);
-    let result: { x: number; y: number; color: string } | null = null;
-
-    automationProcess.stdout?.on("data", (data: Buffer) => {
-      const lines = data
-        .toString()
-        .split("\n")
-        .filter((l: string) => l.trim());
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith("PICKED|")) {
-          const parts = trimmed.split("|");
-          if (parts.length >= 4) {
-            result = {
-              x: parseInt(parts[1], 10),
-              y: parseInt(parts[2], 10),
-              color: parts[3],
-            };
-          }
-        }
-      }
-    });
-
-    automationProcess.on("exit", () => {
-      automationProcess = null;
-      // Restore main window
-      mainWindow?.show();
-      mainWindow?.focus();
-      resolve(result);
-    });
-
-    // Timeout after 60 seconds
-    setTimeout(() => {
-      if (automationProcess) {
-        killAutomationProcess();
-        mainWindow?.show();
-        mainWindow?.focus();
-        resolve(null);
-      }
-    }, 60000);
-  });
 });
 
 // List Scripts
