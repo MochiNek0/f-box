@@ -6,13 +6,16 @@ import { GameView } from "./components/app/GameView";
 import { FlashTutorial } from "./components/app/FlashTutorial";
 import { Settings } from "./components/app/Settings";
 import { RecorderToolbar } from "./components/app/RecorderToolbar";
+import { OCRSelectionOverlay } from "./components/app/OCRSelectionOverlay";
 import { useTabStore } from "./store/useTabStore";
 import { useSettingsStore } from "./store/useSettingsStore";
+import { createWorker } from "tesseract.js";
 
 const App: React.FC = () => {
   const [hasFlash, setHasFlash] = useState<boolean | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isRecorderOpen, setIsRecorderOpen] = useState(false);
+  const [showOCRSelection, setShowOCRSelection] = useState(false);
   const [initialRecordName, setInitialRecordName] = useState("");
 
   const handleOpenRecorder = (name: string) => {
@@ -48,8 +51,83 @@ const App: React.FC = () => {
       if (window.electron && window.electron.updateBossKey) {
         window.electron.updateBossKey(bossKey);
       }
+
+      // Breakpoint Trigger Listener
+      if (
+        window.electron.automation &&
+        window.electron.automation.onBreakpointTriggered
+      ) {
+        window.electron.automation.onBreakpointTriggered(() => {
+          setShowOCRSelection(true);
+        });
+      }
+
+      // OCR Request Listener for Playback
+      if (
+        window.electron.automation &&
+        window.electron.automation.onOCRRequest
+      ) {
+        let worker: any = null;
+        window.electron.automation.onOCRRequest(async (data) => {
+          console.log(
+            "Renderer: Received OCR Request",
+            data.region,
+            data.expectedText,
+          );
+          try {
+            if (!worker) {
+              console.log("Renderer: Initializing Tesseract Worker...");
+              worker = await createWorker("chi_sim+eng");
+              console.log("Renderer: Tesseract Worker Ready.");
+            }
+
+            const dpr = window.devicePixelRatio || 1;
+            const {
+              data: { text },
+            } = await worker.recognize(data.screenshotData, {
+              rectangle: {
+                left: data.region.x * dpr,
+                top: data.region.y * dpr,
+                width: data.region.w * dpr,
+                height: data.region.h * dpr,
+              },
+            });
+
+            const sanitizedOCR = text.replace(/\s+/g, "");
+
+            const sanitizedExpected = data.expectedText.replace(/\s+/g, "");
+
+            const matched = sanitizedOCR.includes(sanitizedExpected);
+
+            console.log(
+              `Renderer: Match Result: ${matched} (Searched "${sanitizedExpected}" in "${sanitizedOCR}")`,
+            );
+            window.electron.automation.ocrResponse({ text, matched });
+          } catch (err) {
+            console.error("Renderer: OCR Error:", err);
+            window.electron.automation.ocrResponse({
+              text: "",
+              matched: false,
+            });
+          }
+        });
+      }
     };
     init();
+    return () => {
+      if (
+        window.electron.automation &&
+        window.electron.automation.offBreakpointTriggered
+      ) {
+        window.electron.automation.offBreakpointTriggered();
+      }
+      if (
+        window.electron.automation &&
+        window.electron.automation.offOCRRequest
+      ) {
+        window.electron.automation.offOCRRequest();
+      }
+    };
   }, []);
 
   if (hasFlash === null) {
@@ -101,6 +179,30 @@ const App: React.FC = () => {
         <RecorderToolbar
           initialName={initialRecordName}
           onClose={handleCloseRecorder}
+        />
+      )}
+
+      {/* OCR Region Selection */}
+      {showOCRSelection && (
+        <OCRSelectionOverlay
+          onComplete={async (data) => {
+            await window.electron.automation.breakpointResume(data);
+            setShowOCRSelection(false);
+          }}
+          onCancel={async () => {
+            // Even if cancel, we should resume recording but maybe without breakpoint?
+            // Actually AHK is waiting for a resume signal anyway.
+            // Let's send a resume signal with empty/null-ish data?
+            // Or just resume with 0,0,0,0,""
+            await window.electron.automation.breakpointResume({
+              x: 0,
+              y: 0,
+              w: 0,
+              h: 0,
+              text: "",
+            });
+            setShowOCRSelection(false);
+          }}
         />
       )}
     </div>

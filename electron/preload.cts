@@ -39,5 +39,36 @@ contextBridge.exposeInMainWorld("electron", {
     offStatus: () => {
       ipcRenderer.removeAllListeners("automation-status");
     },
+    onBreakpointTriggered: (callback: () => void) => {
+      ipcRenderer.on("automation-breakpoint-triggered", () => callback());
+    },
+    offBreakpointTriggered: () => {
+      ipcRenderer.removeAllListeners("automation-breakpoint-triggered");
+    },
+    breakpointResume: (data: {
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      text: string;
+    }) => ipcRenderer.invoke("automation-breakpoint-resume", data),
+    getScreenshot: () => ipcRenderer.invoke("automation-get-screenshot"),
+    onOCRRequest: (
+      callback: (data: {
+        screenshotData: string;
+        region: { x: number; y: number; w: number; h: number };
+        expectedText: string;
+      }) => void,
+    ) => {
+      ipcRenderer.on("automation-ocr-request", (_event, data) =>
+        callback(data),
+      );
+    },
+    ocrResponse: (data: { text: string; matched: boolean }) => {
+      ipcRenderer.send("automation-ocr-response", data);
+    },
+    offOCRRequest: () => {
+      ipcRenderer.removeAllListeners("automation-ocr-request");
+    },
   },
 });

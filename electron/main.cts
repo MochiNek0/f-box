@@ -13,12 +13,15 @@ import fs from "fs";
 import os from "os";
 import { spawn, ChildProcess } from "child_process";
 
+import screenshot from "screenshot-desktop";
+
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let currentBossKey: string = "Escape";
 let ahkProcess: any = null;
 let automationProcess: ChildProcess | null = null;
 let currentRecordingPath: string | null = null;
+let currentPlayingScriptPath: string | null = null;
 const configDir = path.join(os.homedir(), ".f-box");
 const configPath = path.join(configDir, "keymap.ini");
 const scriptsDir = path.join(configDir, "scripts");
@@ -402,6 +405,8 @@ ipcMain.on("resume-keymap", () => {
   console.log("Keymap (AHK) resumed");
 });
 
+// OCR Service moved to Renderer
+
 // =================================================================
 // Automation IPC Handlers
 // =================================================================
@@ -487,7 +492,14 @@ ipcMain.handle("automation-start-record", async (_event, name: string) => {
         .split("\n")
         .filter((l: string) => l.trim());
       for (const line of lines) {
-        mainWindow?.webContents.send("automation-status", line.trim());
+        const trimmed = line.trim();
+        if (trimmed.startsWith("SIGNAL|BREAKPOINT_REQ")) {
+          mainWindow?.webContents.send("automation-breakpoint-triggered");
+        } else if (trimmed.startsWith("REQ|OCR|")) {
+          handlePlaybackOCRRequest(trimmed);
+        } else {
+          mainWindow?.webContents.send("automation-status", trimmed);
+        }
       }
     });
 
@@ -554,6 +566,7 @@ ipcMain.handle("automation-start-play", async (_event, name: string) => {
       };
     }
 
+    currentPlayingScriptPath = scriptPath;
     // AHK V2 script args: play <scriptFile> <maxLoops>
     const args = [...runtime.args, "play", scriptPath, repeatCount.toString()];
     console.log("Spawning play:", runtime.exe, args.join(" "));
@@ -565,7 +578,12 @@ ipcMain.handle("automation-start-play", async (_event, name: string) => {
         .split("\n")
         .filter((l: string) => l.trim());
       for (const line of lines) {
-        mainWindow?.webContents.send("automation-status", line.trim());
+        const trimmed = line.trim();
+        if (trimmed.startsWith("REQ|OCR|")) {
+          handlePlaybackOCRRequest(trimmed);
+        } else {
+          mainWindow?.webContents.send("automation-status", trimmed);
+        }
       }
     });
 
@@ -602,6 +620,52 @@ ipcMain.handle("automation-list-scripts", async () => {
     return [];
   }
 });
+
+async function handlePlaybackOCRRequest(line: string) {
+  // Format: REQ|OCR|<index>|<x>|<y>|<w>|<h>|<text>
+  const parts = line.split("|");
+  const x = parseInt(parts[3]);
+  const y = parseInt(parts[4]);
+  const w = parseInt(parts[5]);
+  const h = parseInt(parts[6]);
+  const expectedText = parts[7];
+
+  console.log(
+    `Playback OCR Request: Expected "${expectedText}" at (${x},${y},${w},${h})`,
+  );
+
+  try {
+    if (!mainWindow) return;
+    const image = await mainWindow.webContents.capturePage();
+    const imgBuffer = image.toPNG();
+
+    // // Debug: Save screenshot to file
+    // ensureScriptDirs();
+    // const debugDir = path.join(configDir, "debug");
+    // if (!fs.existsSync(debugDir)) {
+    //   fs.mkdirSync(debugDir, { recursive: true });
+    // }
+    // const debugPath = path.join(debugDir, `ocr_debug_${Date.now()}.png`);
+    // fs.writeFileSync(debugPath, imgBuffer);
+    // console.log(`Debug screenshot saved to: ${debugPath}`);
+    // // shell.showItemInFolder(debugPath); // Comment out to avoid annoying user
+
+    const screenshotData =
+      "data:image/png;base64," + imgBuffer.toString("base64");
+
+    // Request OCR from Renderer
+    mainWindow?.webContents.send("automation-ocr-request", {
+      screenshotData,
+      region: { x, y, w, h },
+      expectedText,
+    });
+  } catch (e) {
+    console.error("Playback OCR Request Error:", e);
+    if (currentPlayingScriptPath) {
+      fs.writeFileSync(currentPlayingScriptPath + ".continue", "");
+    }
+  }
+}
 
 // Delete Script
 ipcMain.handle("automation-delete-script", async (_event, name: string) => {
@@ -657,8 +721,52 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("activate", () => {
-  if (mainWindow === null) {
-    createWindow();
+ipcMain.on(
+  "automation-ocr-response",
+  (_event, { text, matched }: { text: string; matched: boolean }) => {
+    console.log(`OCR Result from Renderer: "${text}", matched: ${matched}`);
+    if (currentPlayingScriptPath) {
+      if (matched) {
+        console.log("OCR matched! Stopping automation.");
+        fs.writeFileSync(currentPlayingScriptPath + ".stop_script", "");
+      } else {
+        console.log("OCR did NOT match. Continuing.");
+        fs.writeFileSync(currentPlayingScriptPath + ".continue", "");
+      }
+    }
+  },
+);
+
+// Implementation of Breakpoint Resume
+ipcMain.handle(
+  "automation-breakpoint-resume",
+  async (
+    _event,
+    data: { x: number; y: number; w: number; h: number; text: string },
+  ) => {
+    if (automationProcess && !automationProcess.killed) {
+      if (currentRecordingPath) {
+        const resumeFile = currentRecordingPath + ".resume";
+        fs.writeFileSync(resumeFile, JSON.stringify(data));
+
+        // AHK is paused and waiting in its loop.
+        // We need to tell AHK to resume and record this breakpoint.
+        // Since AHK current loop is just checking shouldStop and stopFile,
+        // we need AHK to also check resumeFile.
+      }
+      return { success: true };
+    }
+    return { success: false, error: "No active automation process" };
+  },
+);
+
+ipcMain.handle("automation-get-screenshot", async () => {
+  try {
+    if (!mainWindow) return { error: "Main window not available" };
+    const image = await mainWindow.webContents.capturePage();
+    const buffer = image.toPNG();
+    return "data:image/png;base64," + buffer.toString("base64");
+  } catch (e: any) {
+    return { error: e.message };
   }
 });

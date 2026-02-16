@@ -16,6 +16,25 @@ export interface AutomationAPI {
   getConfig: (name: string) => Promise<AutomationConfig | null>;
   onStatus: (callback: (status: string) => void) => void;
   offStatus: () => void;
+  onBreakpointTriggered: (callback: () => void) => void;
+  offBreakpointTriggered: () => void;
+  breakpointResume: (data: {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    text: string;
+  }) => Promise<{ success: boolean; error?: string }>;
+  getScreenshot: () => Promise<string | { error: string }>;
+  onOCRRequest: (
+    callback: (data: {
+      screenshotData: string;
+      region: { x: number; y: number; w: number; h: number };
+      expectedText: string;
+    }) => void,
+  ) => void;
+  ocrResponse: (data: { text: string; matched: boolean }) => void;
+  offOCRRequest: () => void;
 }
 
 export interface IElectronAPI {
