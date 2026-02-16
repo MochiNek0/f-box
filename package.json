@@ -2,6 +2,8 @@
   "name": "f-box",
   "private": true,
   "version": "0.0.0",
+  "description": "A Flash Browser",
+  "author": "MochiNeko",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "scripts": {
@@ -76,7 +78,8 @@
       }
     ],
     "asarUnpack": [
-      "keymap.exe"
+      "keymap.exe",
+      "automation.exe"
     ]
   },
   "dependencies": {
@@ -96,7 +99,7 @@
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.2.1",
     "electron": "^11.5.0",
-    "electron-builder": "^26.4.0",
+    "electron-builder": "^22.14.13",
     "eslint": "^9.39.2",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
