@@ -10,6 +10,7 @@ import { OCRSelectionOverlay } from "./components/app/OCRSelectionOverlay";
 import { useTabStore } from "./store/useTabStore";
 import { useSettingsStore } from "./store/useSettingsStore";
 import { createWorker } from "tesseract.js";
+import { preprocessImage } from "./utils/imageProcess";
 
 const App: React.FC = () => {
   const [hasFlash, setHasFlash] = useState<boolean | null>(null);
@@ -81,28 +82,33 @@ const App: React.FC = () => {
               console.log("Renderer: Tesseract Worker Ready.");
             }
 
-            const dpr = window.devicePixelRatio || 1;
+            const processedDataUrl = await preprocessImage(
+              data.screenshotData,
+              data.region,
+            );
+
             const {
               data: { text },
-            } = await worker.recognize(data.screenshotData, {
-              rectangle: {
-                left: data.region.x * dpr,
-                top: data.region.y * dpr,
-                width: data.region.w * dpr,
-                height: data.region.h * dpr,
-              },
-            });
+            } = await worker.recognize(processedDataUrl);
 
-            const sanitizedOCR = text.replace(/\s+/g, "");
+            const sanitize = (str: string) => {
+              if (!str) return "";
+              return str.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "");
+            };
 
-            const sanitizedExpected = data.expectedText.replace(/\s+/g, "");
+            const sanitizedOCR = sanitize(text);
+            const sanitizedExpected = sanitize(data.expectedText);
 
             const matched = sanitizedOCR.includes(sanitizedExpected);
 
             console.log(
               `Renderer: Match Result: ${matched} (Searched "${sanitizedExpected}" in "${sanitizedOCR}")`,
             );
-            window.electron.automation.ocrResponse({ text, matched });
+
+            window.electron.automation.ocrResponse({
+              text: sanitizedOCR,
+              matched,
+            });
           } catch (err) {
             console.error("Renderer: OCR Error:", err);
             window.electron.automation.ocrResponse({
