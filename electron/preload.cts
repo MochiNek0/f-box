@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld("electron", {
   resumeBossKey: () => ipcRenderer.send("resume-boss-key"),
   suspendKeymap: () => ipcRenderer.send("suspend-keymap"),
   resumeKeymap: () => ipcRenderer.send("resume-keymap"),
+  ocr: (imageBase64: string) => ipcRenderer.invoke("perform-ocr", imageBase64),
 
   // Automation API
   automation: {

@@ -55,6 +55,9 @@ export interface IElectronAPI {
   resumeBossKey: () => void;
   suspendKeymap: () => void;
   resumeKeymap: () => void;
+  ocr: (
+    imageBase64: string,
+  ) => Promise<{ success: boolean; data?: any; error?: string }>;
   automation: AutomationAPI;
 }
 

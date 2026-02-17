@@ -7,13 +7,14 @@ import {
   Menu,
   globalShortcut,
   shell,
+  nativeImage,
 } from "electron";
 import path from "path";
 import fs from "fs";
 import os from "os";
 import { spawn, ChildProcess } from "child_process";
 
-import screenshot from "screenshot-desktop";
+import { OcrManager } from "./ocr.cjs";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -22,6 +23,7 @@ let ahkProcess: any = null;
 let automationProcess: ChildProcess | null = null;
 let currentRecordingPath: string | null = null;
 let currentPlayingScriptPath: string | null = null;
+let ocrManager: OcrManager | null = null;
 const configDir = path.join(os.homedir(), ".f-box");
 const configPath = path.join(configDir, "keymap.ini");
 const scriptsDir = path.join(configDir, "scripts");
@@ -331,6 +333,7 @@ app.on("ready", () => {
   startAHK();
   setupTray();
   registerBossKey(currentBossKey);
+  ocrManager = new OcrManager();
 
   // Handle new window creation (for game popups like Seer login)
   app.on("web-contents-created", (_event, contents) => {
@@ -405,7 +408,18 @@ ipcMain.on("resume-keymap", () => {
   console.log("Keymap (AHK) resumed");
 });
 
-// OCR Service moved to Renderer
+// OCR Service
+ipcMain.handle("perform-ocr", async (_event, imageBase64: string) => {
+  if (!ocrManager) {
+    ocrManager = new OcrManager();
+  }
+  try {
+    const result = await ocrManager.recognize(imageBase64);
+    return { success: true, data: result };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+});
 
 // =================================================================
 // Automation IPC Handlers
@@ -713,6 +727,7 @@ ipcMain.handle("automation-get-config", async (_event, name: string) => {
 app.on("before-quit", () => {
   if (ahkProcess) ahkProcess.kill();
   killAutomationProcess();
+  ocrManager?.kill();
 });
 
 app.on("window-all-closed", () => {

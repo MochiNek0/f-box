@@ -9,7 +9,6 @@ import { RecorderToolbar } from "./components/app/RecorderToolbar";
 import { OCRSelectionOverlay } from "./components/app/OCRSelectionOverlay";
 import { useTabStore } from "./store/useTabStore";
 import { useSettingsStore } from "./store/useSettingsStore";
-import { createWorker } from "tesseract.js";
 import { preprocessImage } from "./utils/imageProcess";
 
 const App: React.FC = () => {
@@ -68,7 +67,6 @@ const App: React.FC = () => {
         window.electron.automation &&
         window.electron.automation.onOCRRequest
       ) {
-        let worker: any = null;
         window.electron.automation.onOCRRequest(async (data) => {
           console.log(
             "Renderer: Received OCR Request",
@@ -76,27 +74,38 @@ const App: React.FC = () => {
             data.expectedText,
           );
           try {
-            if (!worker) {
-              console.log("Renderer: Initializing Tesseract Worker...");
-              worker = await createWorker("chi_sim+eng");
-              console.log("Renderer: Tesseract Worker Ready.");
-            }
-
+            // Preprocess (Crop & Scale, but disable heavy filters for Paddle)
             const processedDataUrl = await preprocessImage(
               data.screenshotData,
               data.region,
+              {
+                scale: 2,
+                threshold: 0, // Disable binarization
+                invert: false, // Disable inversion
+                grayscale: false, // Keep color info
+              },
             );
 
-            const {
-              data: { text },
-            } = await worker.recognize(processedDataUrl);
+            // Send base64 (without data prefix) to specific OCR handler
+            // Removing prefix handled in main process or here?
+            // OcrManager in main handles it.
+            const result = await window.electron.ocr(processedDataUrl);
+
+            let detectedText = "";
+            if (result.success && result.data && result.data.code === 100) {
+              // Extract text from PaddleOCR result
+              // data.data is an array of {text, box, score}
+              detectedText = result.data.data
+                .map((item: any) => item.text)
+                .join("");
+            }
 
             const sanitize = (str: string) => {
               if (!str) return "";
               return str.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "");
             };
 
-            const sanitizedOCR = sanitize(text);
+            const sanitizedOCR = sanitize(detectedText);
             const sanitizedExpected = sanitize(data.expectedText);
 
             const matched = sanitizedOCR.includes(sanitizedExpected);
