@@ -27,6 +27,7 @@
       "dist/**/*",
       "dist-electron/**/*",
       "public/**/*",
+      "!public/assets/ocr/**/*",
       "package.json"
     ],
     "asar": true,
@@ -83,6 +84,7 @@
     ]
   },
   "dependencies": {
+    "adm-zip": "^0.5.16",
     "clsx": "^2.1.1",
     "lucide-react": "^0.563.0",
     "react": "^19.2.4",
@@ -92,6 +94,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@types/adm-zip": "^0.5.7",
     "@types/node": "^24.10.9",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",

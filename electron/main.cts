@@ -413,12 +413,33 @@ ipcMain.handle("perform-ocr", async (_event, imageBase64: string) => {
   if (!ocrManager) {
     ocrManager = new OcrManager();
   }
+  if (!ocrManager.isInstalled()) {
+    return { success: false, error: "OCR 扩展包未安装" };
+  }
   try {
     const result = await ocrManager.recognize(imageBase64);
     return { success: true, data: result };
   } catch (e: any) {
     return { success: false, error: e.message };
   }
+});
+
+// OCR Plugin Management
+ipcMain.handle("ocr-get-status", async () => {
+  if (!ocrManager) ocrManager = new OcrManager();
+  return { installed: ocrManager.isInstalled() };
+});
+
+ipcMain.handle("ocr-install", async () => {
+  if (!ocrManager) ocrManager = new OcrManager();
+  const success = await ocrManager.install();
+  return { success };
+});
+
+ipcMain.handle("ocr-uninstall", async () => {
+  if (!ocrManager) ocrManager = new OcrManager();
+  const success = await ocrManager.uninstall();
+  return { success };
 });
 
 // =================================================================
@@ -508,7 +529,16 @@ ipcMain.handle("automation-start-record", async (_event, name: string) => {
       for (const line of lines) {
         const trimmed = line.trim();
         if (trimmed.startsWith("SIGNAL|BREAKPOINT_REQ")) {
-          mainWindow?.webContents.send("automation-breakpoint-triggered");
+          // Check if OCR is installed
+          if (ocrManager && ocrManager.isInstalled()) {
+            mainWindow?.webContents.send("automation-breakpoint-triggered");
+          } else {
+            console.warn("OCR plugin not installed, ignoring F9 request");
+            mainWindow?.webContents.send(
+              "automation-status",
+              "STATUS|OCR_NOT_INSTALLED",
+            );
+          }
         } else if (trimmed.startsWith("REQ|OCR|")) {
           handlePlaybackOCRRequest(trimmed);
         } else {

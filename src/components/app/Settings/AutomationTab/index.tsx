@@ -8,6 +8,8 @@ import {
   ChevronDown,
   ChevronUp,
   Save,
+  Download,
+  Box,
 } from "lucide-react";
 import { IconButton } from "../../../common/IconButton";
 
@@ -31,12 +33,19 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
 
   // Config for expanded script
   const [repeatCount, setRepeatCount] = useState(0);
+  const [ocrInstalled, setOcrInstalled] = useState(false);
+  const [isInstallingOcr, setIsInstallingOcr] = useState(false);
 
   const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refreshScripts = useCallback(async () => {
     const list = await window.electron.automation.listScripts();
     setScripts(list);
+  }, []);
+
+  const checkOcrStatus = useCallback(async () => {
+    const status = await window.electron.ocrGetStatus();
+    setOcrInstalled(status.installed);
   }, []);
 
   // Setup status listener
@@ -84,6 +93,9 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
               setPlayingScript(null);
             }
             break;
+          case "OCR_NOT_INSTALLED":
+            setStatusMessage("⚠️ 未安装 OCR 扩展，无法触发断点。请先下载。");
+            break;
         }
       }
     });
@@ -93,10 +105,11 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
     };
   }, [isRecording, isPlaying, refreshScripts]);
 
-  // Load scripts on mount
+  // Load scripts and OCR status on mount
   useEffect(() => {
     refreshScripts();
-  }, [refreshScripts]);
+    checkOcrStatus();
+  }, [refreshScripts, checkOcrStatus]);
 
   // Load config when a script is expanded
   useEffect(() => {
@@ -158,6 +171,27 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
     }
   };
 
+  const handleInstallOcr = async () => {
+    setIsInstallingOcr(true);
+    setStatusMessage("正在从远程服务器下载并解压 OCR 扩展包...");
+    const result = await window.electron.ocrInstall();
+    setIsInstallingOcr(false);
+    if (result.success) {
+      setOcrInstalled(true);
+      setStatusMessage("✅ OCR 扩展包下载并自动安装成功");
+    } else {
+      setStatusMessage("❌ OCR 扩展包下载或解压失败，请检查网络");
+    }
+  };
+
+  const handleUninstallOcr = async () => {
+    const result = await window.electron.ocrUninstall();
+    if (result.success) {
+      setOcrInstalled(false);
+      setStatusMessage("🗑️ OCR 扩展包已卸载");
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Record Section */}
@@ -195,6 +229,59 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
         <p className="text-[10px] text-zinc-500 mt-3 italic">
           前往录制后，将关闭当前窗口并打开悬浮录制工具栏。
         </p>
+      </section>
+
+      {/* OCR Extension Section */}
+      <section className="bg-zinc-800/30 p-6 rounded-2xl border border-zinc-800/50">
+        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4 flex justify-between items-center">
+          OCR 扩展功能
+          {ocrInstalled ? (
+            <span className="text-green-500 lowercase font-mono">
+              installed
+            </span>
+          ) : (
+            <span className="text-zinc-600 lowercase font-mono">
+              not installed
+            </span>
+          )}
+        </label>
+
+        <div className="flex items-center gap-4 bg-zinc-900/50 p-4 rounded-xl border border-zinc-700/30">
+          <div className="p-3 bg-zinc-800 rounded-lg">
+            <Box
+              size={24}
+              className={ocrInstalled ? "text-orange-400" : "text-zinc-600"}
+            />
+          </div>
+          <div className="flex-grow">
+            <h4 className="text-sm font-medium text-zinc-200">OCR 识别引擎</h4>
+            <p className="text-xs text-zinc-500 mt-1">
+              启用断点功能（录制时按 F9）需要此扩展包。
+            </p>
+          </div>
+          <div>
+            {!ocrInstalled ? (
+              <Button
+                onClick={handleInstallOcr}
+                disabled={isInstallingOcr}
+                variant="primary"
+                className="flex whitespace-nowrap items-center"
+              >
+                <Download size={14} className="mr-1.5" />
+                下载扩展包
+              </Button>
+            ) : (
+              <Button
+                onClick={handleUninstallOcr}
+                variant="secondary"
+                className="flex items-center whitespace-nowrap text-zinc-400 hover:text-red-400"
+              >
+                <Trash2 size={14} className="mr-1.5" />
+                卸载
+              </Button>
+            )}
+          </div>
+        </div>
       </section>
 
       {/* Status Bar */}

@@ -3,6 +3,8 @@ import path from "path";
 import fs from "fs";
 import { app } from "electron";
 import os from "os";
+import https from "https";
+import AdmZip from "adm-zip";
 
 interface OcrRequest {
   resolve: (data: any) => void;
@@ -15,46 +17,35 @@ export class OcrManager {
   private queue: OcrRequest[] = [];
   private isProcessing = false;
   private buffer = ""; // Buffer for stdout
-  private exePath: string = "";
+  private getPluginPath(): string {
+    return path.join(os.homedir(), ".f-box", "plugins", "ocr");
+  }
 
-  constructor() {
-    this.exePath = this.getExecutablePath();
-    this.startProcess();
+  public isInstalled(): boolean {
+    const pluginPath = this.getPluginPath();
+    const exePath = path.join(pluginPath, "PaddleOCR-json.exe");
+    return fs.existsSync(exePath);
   }
 
   private getExecutablePath(): string {
-    const basePath = app.isPackaged
-      ? path.join(process.resourcesPath, "ocr")
-      : path.join(__dirname, "..", "public", "assets", "ocr");
-
-    // Check known structures
-    const possiblePaths = [
-      path.join(basePath, "PaddleOCR-json.exe"),
-      path.join(basePath, "PaddleOCR-json", "PaddleOCR-json.exe"),
-    ];
-
-    for (const p of possiblePaths) {
-      if (fs.existsSync(p)) return p;
-    }
-
-    console.warn("PaddleOCR-json.exe not found in:", possiblePaths);
+    const pluginPath = this.getPluginPath();
+    const exePath = path.join(pluginPath, "PaddleOCR-json.exe");
+    if (fs.existsSync(exePath)) return exePath;
     return "";
   }
 
   private startProcess() {
-    if (!this.exePath) {
-      this.exePath = this.getExecutablePath();
-      if (!this.exePath) return; // Still not found
-    }
+    const exePath = this.getExecutablePath();
+    if (!exePath) return;
 
     if (this.process) return;
 
-    console.log("Starting PaddleOCR-json at:", this.exePath);
+    console.log("Starting PaddleOCR-json at:", exePath);
 
     // PaddleOCR-json args
     // --use_debug=0 to disable logs
-    this.process = spawn(this.exePath, ["--ensure_ascii=1", "--use_gpu=0"], {
-      cwd: path.dirname(this.exePath), // Important: cwd must be the dir of exe for models
+    this.process = spawn(exePath, ["--ensure_ascii=1", "--use_gpu=0"], {
+      cwd: path.dirname(exePath), // Important: cwd must be the dir of exe for models
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -152,6 +143,116 @@ export class OcrManager {
     if (this.process) {
       this.process.kill();
       this.process = null;
+    }
+  }
+
+  public async install(): Promise<boolean> {
+    const url =
+      "https://github.com/MochiNek0/f-box/releases/download/ocr-plugin/ocr.zip";
+    const tempDir = app.getPath("temp");
+    const zipPath = path.join(tempDir, `ocr_${Date.now()}.zip`);
+    const destDir = this.getPluginPath();
+
+    try {
+      console.log(`Downloading OCR plugin from ${url}...`);
+      await this.downloadFile(url, zipPath);
+
+      console.log(`Extracting OCR plugin to ${destDir}...`);
+      if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+      }
+
+      const zip = new AdmZip(zipPath);
+      const zipEntries = zip.getEntries();
+
+      // Check if all entries are inside a single root folder
+      let rootFolder = "";
+      if (zipEntries.length > 0) {
+        const firstEntry = zipEntries[0].entryName.split("/")[0];
+        const allInRoot = zipEntries.every(
+          (e) =>
+            e.entryName.startsWith(firstEntry + "/") ||
+            e.entryName === firstEntry ||
+            e.entryName === firstEntry + "/",
+        );
+        if (allInRoot) {
+          rootFolder = firstEntry;
+        }
+      }
+
+      zipEntries.forEach((entry) => {
+        if (entry.isDirectory) return;
+
+        let targetPath = entry.entryName;
+        if (rootFolder && targetPath.startsWith(rootFolder + "/")) {
+          targetPath = targetPath.substring(rootFolder.length + 1);
+        }
+
+        const fullPath = path.join(destDir, targetPath);
+        const dir = path.dirname(fullPath);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+
+        fs.writeFileSync(fullPath, entry.getData());
+      });
+
+      // Clean up temp zip
+      if (fs.existsSync(zipPath)) {
+        fs.unlinkSync(zipPath);
+      }
+
+      console.log("OCR plugin installation complete.");
+      return true;
+    } catch (e) {
+      console.error("Failed to install OCR plugin:", e);
+      if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+      return false;
+    }
+  }
+
+  private downloadFile(url: string, dest: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const request = https.get(url, (response) => {
+        if (response.statusCode === 302 || response.statusCode === 301) {
+          // Follow redirect
+          this.downloadFile(response.headers.location!, dest)
+            .then(resolve)
+            .catch(reject);
+          return;
+        }
+
+        if (response.statusCode !== 200) {
+          reject(new Error(`Failed to download: ${response.statusCode}`));
+          return;
+        }
+
+        const file = fs.createWriteStream(dest);
+        response.pipe(file);
+        file.on("finish", () => {
+          file.close();
+          resolve();
+        });
+      });
+
+      request.on("error", (err) => {
+        if (fs.existsSync(dest)) fs.unlinkSync(dest);
+        reject(err);
+      });
+    });
+  }
+
+  public async uninstall(): Promise<boolean> {
+    this.kill();
+    const dest = this.getPluginPath();
+    try {
+      if (fs.existsSync(dest)) {
+        fs.rmSync(dest, { recursive: true, force: true });
+      }
+      return true;
+    } catch (e) {
+      console.error("Failed to uninstall OCR plugin:", e);
+      return false;
     }
   }
 }

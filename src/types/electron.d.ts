@@ -63,6 +63,9 @@ export interface IElectronAPI {
   ocr: (
     imageBase64: string,
   ) => Promise<{ success: boolean; data?: any; error?: string }>;
+  ocrGetStatus: () => Promise<{ installed: boolean }>;
+  ocrInstall: () => Promise<{ success: boolean }>;
+  ocrUninstall: () => Promise<{ success: boolean }>;
   automation: AutomationAPI;
 }
 

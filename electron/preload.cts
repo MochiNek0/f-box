@@ -18,6 +18,9 @@ contextBridge.exposeInMainWorld("electron", {
   suspendKeymap: () => ipcRenderer.send("suspend-keymap"),
   resumeKeymap: () => ipcRenderer.send("resume-keymap"),
   ocr: (imageBase64: string) => ipcRenderer.invoke("perform-ocr", imageBase64),
+  ocrGetStatus: () => ipcRenderer.invoke("ocr-get-status"),
+  ocrInstall: () => ipcRenderer.invoke("ocr-install"),
+  ocrUninstall: () => ipcRenderer.invoke("ocr-uninstall"),
 
   // Automation API
   automation: {
