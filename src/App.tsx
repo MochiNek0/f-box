@@ -69,7 +69,7 @@ const App: React.FC = () => {
       ) {
         window.electron.automation.onOCRRequest(async (data) => {
           console.log(
-            "Renderer: Received OCR Request",
+            `Renderer: Received OCR Request [id=${data.requestId}]`,
             data.region,
             data.expectedText,
           );
@@ -87,14 +87,10 @@ const App: React.FC = () => {
             );
 
             // Send base64 (without data prefix) to specific OCR handler
-            // Removing prefix handled in main process or here?
-            // OcrManager in main handles it.
             const result = await window.electron.ocr(processedDataUrl);
 
             let detectedText = "";
             if (result.success && result.data && result.data.code === 100) {
-              // Extract text from PaddleOCR result
-              // data.data is an array of {text, box, score}
               detectedText = result.data.data
                 .map((item: any) => item.text)
                 .join("");
@@ -106,21 +102,29 @@ const App: React.FC = () => {
             };
 
             const sanitizedOCR = sanitize(detectedText);
-            const sanitizedExpected = sanitize(data.expectedText);
+            const expectedParts = data.expectedText
+              .split("|")
+              .map((p) => p.trim())
+              .filter((p) => p.length > 0);
 
-            const matched = sanitizedOCR.includes(sanitizedExpected);
+            const matched = expectedParts.some((part) => {
+              const sanitizedExpected = sanitize(part);
+              return sanitizedOCR.includes(sanitizedExpected);
+            });
 
             console.log(
-              `Renderer: Match Result: ${matched} (Searched "${sanitizedExpected}" in "${sanitizedOCR}")`,
+              `Renderer: Match Result [id=${data.requestId}]: ${matched} (Searched "${data.expectedText}" in "${sanitizedOCR}")`,
             );
 
             window.electron.automation.ocrResponse({
+              requestId: data.requestId,
               text: sanitizedOCR,
               matched,
             });
           } catch (err) {
-            console.error("Renderer: OCR Error:", err);
+            console.error(`Renderer: OCR Error [id=${data.requestId}]:`, err);
             window.electron.automation.ocrResponse({
+              requestId: data.requestId,
               text: "",
               matched: false,
             });

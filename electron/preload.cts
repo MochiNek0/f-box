@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld("electron", {
     getScreenshot: () => ipcRenderer.invoke("automation-get-screenshot"),
     onOCRRequest: (
       callback: (data: {
+        requestId: string;
         screenshotData: string;
         region: { x: number; y: number; w: number; h: number };
         expectedText: string;
@@ -65,7 +66,11 @@ contextBridge.exposeInMainWorld("electron", {
         callback(data),
       );
     },
-    ocrResponse: (data: { text: string; matched: boolean }) => {
+    ocrResponse: (data: {
+      requestId: string;
+      text: string;
+      matched: boolean;
+    }) => {
       ipcRenderer.send("automation-ocr-response", data);
     },
     offOCRRequest: () => {

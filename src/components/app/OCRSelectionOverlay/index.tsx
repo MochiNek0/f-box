@@ -112,7 +112,7 @@ export const OCRSelectionOverlay: React.FC<OCRSelectionOverlayProps> = ({
           {showInput && (
             <div className="absolute top-full left-0 mt-2 bg-zinc-900 p-4 rounded-lg border border-zinc-700 shadow-2xl min-w-[300px] pointer-events-auto">
               <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">
-                期待出现的文字 (OCR)
+                期待出现的文字 (OCR) - 可用 | 隔开多组
               </label>
               <input
                 type="text"
@@ -120,7 +120,7 @@ export const OCRSelectionOverlay: React.FC<OCRSelectionOverlayProps> = ({
                 value={expectedText}
                 onChange={(e) => setExpectedText(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleConfirm()}
-                placeholder="在此输入要匹配的中文或英文..."
+                placeholder="在此输入匹配文字，多组可用 | 隔开..."
                 className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-blue-500"
               />
               <div className="flex gap-2 mt-4 justify-end">

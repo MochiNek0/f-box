@@ -28,12 +28,17 @@ export interface AutomationAPI {
   getScreenshot: () => Promise<string | { error: string }>;
   onOCRRequest: (
     callback: (data: {
+      requestId: string;
       screenshotData: string;
       region: { x: number; y: number; w: number; h: number };
       expectedText: string;
     }) => void,
   ) => void;
-  ocrResponse: (data: { text: string; matched: boolean }) => void;
+  ocrResponse: (data: {
+    requestId: string;
+    text: string;
+    matched: boolean;
+  }) => void;
   offOCRRequest: () => void;
 }
 

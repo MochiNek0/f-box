@@ -242,8 +242,17 @@ RunPlay(scriptFile, maxLoops := 0) {
     }
 
     FileAppend("STATUS|PLAYING`n", "*", "UTF-8")
+    LogDebug("Starting playback: " scriptFile)
+
+    ; 清理旧的信号文件
+    Loop Files, scriptFile ".*" {
+        if (InStr(A_LoopFileName, ".continue") || InStr(A_LoopFileName, ".stop_script")) {
+            try FileDelete(A_LoopFileFullPath)
+        }
+    }
 
     loopCount := 0
+    ocrRequestId := 0
     while (!shouldStop) {
         loopCount++
         
@@ -269,23 +278,27 @@ RunPlay(scriptFile, maxLoops := 0) {
                 break
 
             if (evt.type = "breakpoint") {
+                ocrRequestId++
                 waitStart := QPC()
-                FileAppend("REQ|OCR|" i "|" evt.x "|" evt.y "|" evt.w "|" evt.h "|" evt.text "`n", "*", "UTF-8")
+                FileAppend("REQ|OCR|" ocrRequestId "|" i "|" evt.x "|" evt.y "|" evt.w "|" evt.h "|" evt.text "`n", "*", "UTF-8")
+                LogDebug("OCR Request " ocrRequestId " sent for event " i)
                 
                 ; 等待回应
                 resolved := false
-                continueFile := scriptFile ".continue"
-                stopScriptFile := scriptFile ".stop_script"
+                continueFile := scriptFile ".continue_" ocrRequestId
+                stopScriptFile := scriptFile ".stop_script_" ocrRequestId
                 
                 while (!resolved && !shouldStop) {
                     if FileExist(continueFile) {
                         try FileDelete(continueFile)
                         resolved := true
+                        LogDebug("OCR " ocrRequestId " resolved: CONTINUE")
                     }
                     if FileExist(stopScriptFile) {
                         try FileDelete(stopScriptFile)
                         shouldStop := true
                         resolved := true
+                        LogDebug("OCR " ocrRequestId " resolved: STOP_SCRIPT")
                     }
                     Sleep(100)
                 }
@@ -306,6 +319,7 @@ RunPlay(scriptFile, maxLoops := 0) {
     }
 
     FileAppend("STATUS|STOPPED|" (shouldStop ? loopCount : loopCount-1) "`n", "*", "UTF-8")
+    LogDebug("Playback stopped at loop " loopCount ". shouldStop: " (shouldStop?"true":"false"))
 }
 
 ExecuteEvent(evt) {

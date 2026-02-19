@@ -636,16 +636,18 @@ ipcMain.handle("automation-list-scripts", async () => {
 });
 
 async function handlePlaybackOCRRequest(line: string) {
-  // Format: REQ|OCR|<index>|<x>|<y>|<w>|<h>|<text>
+  // Format: REQ|OCR|<requestId>|<index>|<x>|<y>|<w>|<h>|<text>
   const parts = line.split("|");
-  const x = parseInt(parts[3]);
-  const y = parseInt(parts[4]);
-  const w = parseInt(parts[5]);
-  const h = parseInt(parts[6]);
-  const expectedText = parts[7];
+  const requestId = parts[2];
+  const index = parts[3];
+  const x = parseInt(parts[4]);
+  const y = parseInt(parts[5]);
+  const w = parseInt(parts[6]);
+  const h = parseInt(parts[7]);
+  const expectedText = parts.slice(8).join("|");
 
   console.log(
-    `Playback OCR Request: Expected "${expectedText}" at (${x},${y},${w},${h})`,
+    `Playback OCR Request [id=${requestId}]: Expected "${expectedText}" at (${x},${y},${w},${h})`,
   );
 
   try {
@@ -669,6 +671,7 @@ async function handlePlaybackOCRRequest(line: string) {
 
     // Request OCR from Renderer
     mainWindow?.webContents.send("automation-ocr-request", {
+      requestId,
       screenshotData,
       region: { x, y, w, h },
       expectedText,
@@ -676,7 +679,7 @@ async function handlePlaybackOCRRequest(line: string) {
   } catch (e) {
     console.error("Playback OCR Request Error:", e);
     if (currentPlayingScriptPath) {
-      fs.writeFileSync(currentPlayingScriptPath + ".continue", "");
+      fs.writeFileSync(`${currentPlayingScriptPath}.continue_${requestId}`, "");
     }
   }
 }
@@ -738,15 +741,30 @@ app.on("window-all-closed", () => {
 
 ipcMain.on(
   "automation-ocr-response",
-  (_event, { text, matched }: { text: string; matched: boolean }) => {
-    console.log(`OCR Result from Renderer: "${text}", matched: ${matched}`);
+  (
+    _event,
+    {
+      requestId,
+      text,
+      matched,
+    }: { requestId: string; text: string; matched: boolean },
+  ) => {
+    console.log(
+      `OCR Result [id=${requestId}] from Renderer: "${text}", matched: ${matched}`,
+    );
     if (currentPlayingScriptPath) {
       if (matched) {
-        console.log("OCR matched! Stopping automation.");
-        fs.writeFileSync(currentPlayingScriptPath + ".stop_script", "");
+        console.log(`OCR matched! Stopping automation [id=${requestId}].`);
+        fs.writeFileSync(
+          `${currentPlayingScriptPath}.stop_script_${requestId}`,
+          "",
+        );
       } else {
-        console.log("OCR did NOT match. Continuing.");
-        fs.writeFileSync(currentPlayingScriptPath + ".continue", "");
+        console.log(`OCR did NOT match. Continuing [id=${requestId}].`);
+        fs.writeFileSync(
+          `${currentPlayingScriptPath}.continue_${requestId}`,
+          "",
+        );
       }
     }
   },
