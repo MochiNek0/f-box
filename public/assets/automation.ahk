@@ -98,11 +98,14 @@ RunRecord(outputFile) {
             try {
                 content := FileRead(resumeFile, "UTF-8")
                 FileDelete(resumeFile)
-                ; Parse JSON: {"x":0, "y":0, "w":0, "h":0, "text":""}
+                ; Parse JSON: {"t_trigger":0, "x":0, "y":0, "w":0, "h":0, "text":""}
                 if (RegExMatch(content, '"x":(-?\d+)', &mx) && RegExMatch(content, '"y":(-?\d+)', &my) 
                     && RegExMatch(content, '"w":(\d+)', &mw) && RegExMatch(content, '"h":(\d+)', &mh)
                     && RegExMatch(content, '"text":"([^"]*)"', &mt)) {
-                    ResumeFromBreakpoint(Integer(mx[1]), Integer(my[1]), Integer(mw[1]), Integer(mh[1]), mt[1])
+                    tTrigger := 0
+                    if RegExMatch(content, '"t_trigger":([\d.]+)', &mtt)
+                        tTrigger := Float(mtt[1])
+                    ResumeFromBreakpoint(tTrigger, Integer(mx[1]), Integer(my[1]), Integer(mw[1]), Integer(mh[1]), mt[1])
                 } else {
                     isPaused := false ; Fallback
                 }
@@ -269,19 +272,23 @@ RunPlay(scriptFile, maxLoops := 0) {
             if (shouldStop)
                 break
 
-            targetTime := playStart + evt.t
-            while (QPC() < targetTime && !shouldStop) {
-                Sleep(1)
-            }
-
-            if (shouldStop)
-                break
-
             if (evt.type = "breakpoint") {
                 ocrRequestId++
+
+                ; breakpoint 直接等到 t_trigger 时刻截图（即 F9 按下时刻）
+                ; 跳过通用的 evt.t 等待，因为 t_trigger < t
+                tTrigger := evt.HasProp("t_trigger") ? evt.t_trigger : evt.t
+                triggerTarget := playStart + tTrigger
+                while (QPC() < triggerTarget && !shouldStop) {
+                    Sleep(1)
+                }
+
+                if (shouldStop)
+                    break
+
                 waitStart := QPC()
                 FileAppend("REQ|OCR|" ocrRequestId "|" i "|" evt.x "|" evt.y "|" evt.w "|" evt.h "|" evt.text "`n", "*", "UTF-8")
-                LogDebug("OCR Request " ocrRequestId " sent for event " i)
+                LogDebug("OCR Request " ocrRequestId " sent at t_trigger=" tTrigger " for event " i)
                 
                 ; 等待回应
                 resolved := false
@@ -302,10 +309,20 @@ RunPlay(scriptFile, maxLoops := 0) {
                     }
                     Sleep(100)
                 }
-                ; 补偿 OCR 等待时间，防止后续动作瞬间执行（时间偏移纠正）
-                playStart += (QPC() - waitStart)
+                ; 修正时间轴：使后续事件基于 evt.t 继续正确定时
+                ; QPC() 现在是 OCR 结束时刻；(playStart + evt.t) 是理论上应到达的时刻
+                ; 偏移差值补偿 playStart，使下一事件的 targetTime 计算仍然正确
+                playStart += (QPC() - (playStart + evt.t))
                 continue
             }
+
+            targetTime := playStart + evt.t
+            while (QPC() < targetTime && !shouldStop) {
+                Sleep(1)
+            }
+
+            if (shouldStop)
+                break
 
             ExecuteEvent(evt)
         }
@@ -399,6 +416,8 @@ SaveEventsJSON(events, filePath) {
             json .= ',"w":' evt.w
             json .= ',"h":' evt.h
             json .= ',"text":"' EscapeJSON(evt.text) '"'
+            if evt.HasProp("t_trigger")
+                json .= ',"t_trigger":' Format("{:.3f}", evt.t_trigger)
         }
         json .= "}"
     }
@@ -442,6 +461,8 @@ LoadEventsJSON(filePath) {
                 evt.h := Integer(v[1])
             if RegExMatch(obj, '"text"\s*:\s*"([^"]*)"', &v)
                 evt.text := UnescapeJSON(v[1])
+            if RegExMatch(obj, '"t_trigger"\s*:\s*([\d.]+)', &v)
+                evt.t_trigger := Float(v[1])
         }
 
         if evt.HasProp("t") && evt.HasProp("type")
@@ -476,15 +497,17 @@ StopAutomation(*) {
 }
 
 RequestBreakpoint(*) {
-    global isPaused := true
-    FileAppend("SIGNAL|BREAKPOINT_REQ`n", "*", "UTF-8")
+    global isPaused := true, startTime
+    elapsed := QPC() - startTime
+    FileAppend("SIGNAL|BREAKPOINT_REQ|" elapsed "`n", "*", "UTF-8")
 }
 
-ResumeFromBreakpoint(x, y, w, h, text) {
+ResumeFromBreakpoint(tTrigger, x, y, w, h, text) {
     global events, startTime, isPaused
     elapsed := QPC() - startTime
     events.Push({
         t: elapsed,
+        t_trigger: tTrigger,
         type: "breakpoint",
         x: x,
         y: y,

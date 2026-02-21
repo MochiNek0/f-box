@@ -531,7 +531,12 @@ ipcMain.handle("automation-start-record", async (_event, name: string) => {
         if (trimmed.startsWith("SIGNAL|BREAKPOINT_REQ")) {
           // Check if OCR is installed
           if (ocrManager && ocrManager.isInstalled()) {
-            mainWindow?.webContents.send("automation-breakpoint-triggered");
+            // Parse t_trigger from format: SIGNAL|BREAKPOINT_REQ|<elapsed_ms>
+            const parts = trimmed.split("|");
+            const tTrigger = parts.length >= 3 ? parseFloat(parts[2]) : 0;
+            mainWindow?.webContents.send("automation-breakpoint-triggered", {
+              tTrigger,
+            });
           } else {
             console.warn("OCR plugin not installed, ignoring F9 request");
             mainWindow?.webContents.send(
@@ -805,17 +810,29 @@ ipcMain.handle(
   "automation-breakpoint-resume",
   async (
     _event,
-    data: { x: number; y: number; w: number; h: number; text: string },
+    data: {
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      text: string;
+      tTrigger?: number;
+    },
   ) => {
     if (automationProcess && !automationProcess.killed) {
       if (currentRecordingPath) {
         const resumeFile = currentRecordingPath + ".resume";
-        fs.writeFileSync(resumeFile, JSON.stringify(data));
-
-        // AHK is paused and waiting in its loop.
-        // We need to tell AHK to resume and record this breakpoint.
-        // Since AHK current loop is just checking shouldStop and stopFile,
-        // we need AHK to also check resumeFile.
+        fs.writeFileSync(
+          resumeFile,
+          JSON.stringify({
+            t_trigger: data.tTrigger ?? 0,
+            x: data.x,
+            y: data.y,
+            w: data.w,
+            h: data.h,
+            text: data.text,
+          }),
+        );
       }
       return { success: true };
     }

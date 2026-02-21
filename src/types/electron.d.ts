@@ -16,7 +16,9 @@ export interface AutomationAPI {
   getConfig: (name: string) => Promise<AutomationConfig | null>;
   onStatus: (callback: (status: string) => void) => void;
   offStatus: () => void;
-  onBreakpointTriggered: (callback: () => void) => void;
+  onBreakpointTriggered: (
+    callback: (payload: { tTrigger: number }) => void,
+  ) => void;
   offBreakpointTriggered: () => void;
   breakpointResume: (data: {
     x: number;
@@ -24,6 +26,7 @@ export interface AutomationAPI {
     w: number;
     h: number;
     text: string;
+    tTrigger?: number;
   }) => Promise<{ success: boolean; error?: string }>;
   getScreenshot: () => Promise<string | { error: string }>;
   onOCRRequest: (

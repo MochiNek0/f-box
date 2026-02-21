@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { TitleBar } from "./components/app/TitleBar";
 import { TabBar } from "./components/app/TabBar";
 import { GameLibrary } from "./components/app/GameLibrary";
@@ -17,6 +17,8 @@ const App: React.FC = () => {
   const [isRecorderOpen, setIsRecorderOpen] = useState(false);
   const [showOCRSelection, setShowOCRSelection] = useState(false);
   const [initialRecordName, setInitialRecordName] = useState("");
+  // Store t_trigger (F9 press time) from BREAKPOINT_REQ to pass back on resume
+  const pendingTTrigger = useRef<number>(0);
 
   const handleOpenRecorder = (name: string) => {
     setInitialRecordName(name);
@@ -57,7 +59,8 @@ const App: React.FC = () => {
         window.electron.automation &&
         window.electron.automation.onBreakpointTriggered
       ) {
-        window.electron.automation.onBreakpointTriggered(() => {
+        window.electron.automation.onBreakpointTriggered(({ tTrigger }) => {
+          pendingTTrigger.current = tTrigger;
           setShowOCRSelection(true);
         });
       }
@@ -205,21 +208,23 @@ const App: React.FC = () => {
       {showOCRSelection && (
         <OCRSelectionOverlay
           onComplete={async (data) => {
-            await window.electron.automation.breakpointResume(data);
+            await window.electron.automation.breakpointResume({
+              ...data,
+              tTrigger: pendingTTrigger.current,
+            });
+            pendingTTrigger.current = 0;
             setShowOCRSelection(false);
           }}
           onCancel={async () => {
-            // Even if cancel, we should resume recording but maybe without breakpoint?
-            // Actually AHK is waiting for a resume signal anyway.
-            // Let's send a resume signal with empty/null-ish data?
-            // Or just resume with 0,0,0,0,""
             await window.electron.automation.breakpointResume({
               x: 0,
               y: 0,
               w: 0,
               h: 0,
               text: "",
+              tTrigger: 0,
             });
+            pendingTTrigger.current = 0;
             setShowOCRSelection(false);
           }}
         />

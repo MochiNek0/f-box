@@ -43,8 +43,12 @@ contextBridge.exposeInMainWorld("electron", {
     offStatus: () => {
       ipcRenderer.removeAllListeners("automation-status");
     },
-    onBreakpointTriggered: (callback: () => void) => {
-      ipcRenderer.on("automation-breakpoint-triggered", () => callback());
+    onBreakpointTriggered: (
+      callback: (payload: { tTrigger: number }) => void,
+    ) => {
+      ipcRenderer.on("automation-breakpoint-triggered", (_event, payload) =>
+        callback(payload ?? { tTrigger: 0 }),
+      );
     },
     offBreakpointTriggered: () => {
       ipcRenderer.removeAllListeners("automation-breakpoint-triggered");
@@ -55,6 +59,7 @@ contextBridge.exposeInMainWorld("electron", {
       w: number;
       h: number;
       text: string;
+      tTrigger?: number;
     }) => ipcRenderer.invoke("automation-breakpoint-resume", data),
     getScreenshot: () => ipcRenderer.invoke("automation-get-screenshot"),
     onOCRRequest: (
