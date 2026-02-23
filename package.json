@@ -27,7 +27,6 @@
       "dist/**/*",
       "dist-electron/**/*",
       "public/**/*",
-      "!public/assets/ocr/**/*",
       "package.json"
     ],
     "asar": true,
