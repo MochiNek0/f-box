@@ -1,16 +1,36 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { TitleBar } from "./components/app/TitleBar";
 import { TabBar } from "./components/app/TabBar";
 import { GameLibrary } from "./components/app/GameLibrary";
 import { GameView } from "./components/app/GameView";
 import { FlashTutorial } from "./components/app/FlashTutorial";
 import { Settings } from "./components/app/Settings";
+import { RecorderToolbar } from "./components/app/RecorderToolbar";
+import { OCRSelectionOverlay } from "./components/app/OCRSelectionOverlay";
 import { useTabStore } from "./store/useTabStore";
 import { useSettingsStore } from "./store/useSettingsStore";
+import { preprocessImage } from "./utils/imageProcess";
 
 const App: React.FC = () => {
   const [hasFlash, setHasFlash] = useState<boolean | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isRecorderOpen, setIsRecorderOpen] = useState(false);
+  const [showOCRSelection, setShowOCRSelection] = useState(false);
+  const [initialRecordName, setInitialRecordName] = useState("");
+  // Store t_trigger (F9 press time) from BREAKPOINT_REQ to pass back on resume
+  const pendingTTrigger = useRef<number>(0);
+
+  const handleOpenRecorder = (name: string) => {
+    setInitialRecordName(name);
+    setIsSettingsOpen(false);
+    setIsRecorderOpen(true);
+  };
+
+  const handleCloseRecorder = () => {
+    setIsRecorderOpen(false);
+    setIsSettingsOpen(true);
+    // Ideally we should switch to Automation tab, but for now just opening settings is a good start
+  };
   const { tabs, activeTabId } = useTabStore();
   const { bossKey } = useSettingsStore();
 
@@ -33,8 +53,103 @@ const App: React.FC = () => {
       if (window.electron && window.electron.updateBossKey) {
         window.electron.updateBossKey(bossKey);
       }
+
+      // Breakpoint Trigger Listener
+      if (
+        window.electron.automation &&
+        window.electron.automation.onBreakpointTriggered
+      ) {
+        window.electron.automation.onBreakpointTriggered(({ tTrigger }) => {
+          pendingTTrigger.current = tTrigger;
+          setShowOCRSelection(true);
+        });
+      }
+
+      // OCR Request Listener for Playback
+      if (
+        window.electron.automation &&
+        window.electron.automation.onOCRRequest
+      ) {
+        window.electron.automation.onOCRRequest(async (data) => {
+          console.log(
+            `Renderer: Received OCR Request [id=${data.requestId}]`,
+            data.region,
+            data.expectedText,
+          );
+          try {
+            // Preprocess (Crop & Scale, but disable heavy filters for Paddle)
+            const processedDataUrl = await preprocessImage(
+              data.screenshotData,
+              data.region,
+              {
+                scale: 2,
+                threshold: 0, // Disable binarization
+                invert: false, // Disable inversion
+                grayscale: false, // Keep color info
+              },
+            );
+
+            // Send base64 (without data prefix) to specific OCR handler
+            const result = await window.electron.ocr(processedDataUrl);
+
+            let detectedText = "";
+            if (result.success && result.data && result.data.code === 100) {
+              detectedText = result.data.data
+                .map((item: any) => item.text)
+                .join("");
+            }
+
+            const sanitize = (str: string) => {
+              if (!str) return "";
+              return str.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "");
+            };
+
+            const sanitizedOCR = sanitize(detectedText);
+            const expectedParts = data.expectedText
+              .split("|")
+              .map((p) => p.trim())
+              .filter((p) => p.length > 0);
+
+            const matched = expectedParts.some((part) => {
+              const sanitizedExpected = sanitize(part);
+              return sanitizedOCR.includes(sanitizedExpected);
+            });
+
+            console.log(
+              `Renderer: Match Result [id=${data.requestId}]: ${matched} (Searched "${data.expectedText}" in "${sanitizedOCR}")`,
+            );
+
+            window.electron.automation.ocrResponse({
+              requestId: data.requestId,
+              text: sanitizedOCR,
+              matched,
+            });
+          } catch (err) {
+            console.error(`Renderer: OCR Error [id=${data.requestId}]:`, err);
+            window.electron.automation.ocrResponse({
+              requestId: data.requestId,
+              text: "",
+              matched: false,
+            });
+          }
+        });
+      }
     };
     init();
+    return () => {
+      if (
+        window.electron.automation &&
+        window.electron.automation.offBreakpointTriggered
+      ) {
+        window.electron.automation.offBreakpointTriggered();
+      }
+      if (
+        window.electron.automation &&
+        window.electron.automation.offOCRRequest
+      ) {
+        window.electron.automation.offOCRRequest();
+      }
+    };
   }, []);
 
   if (hasFlash === null) {
@@ -79,7 +194,41 @@ const App: React.FC = () => {
       <Settings
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+        onOpenRecorder={handleOpenRecorder}
       />
+      {/* Recorder Toolbar */}
+      {isRecorderOpen && (
+        <RecorderToolbar
+          initialName={initialRecordName}
+          onClose={handleCloseRecorder}
+        />
+      )}
+
+      {/* OCR Region Selection */}
+      {showOCRSelection && (
+        <OCRSelectionOverlay
+          onComplete={async (data) => {
+            await window.electron.automation.breakpointResume({
+              ...data,
+              tTrigger: pendingTTrigger.current,
+            });
+            pendingTTrigger.current = 0;
+            setShowOCRSelection(false);
+          }}
+          onCancel={async () => {
+            await window.electron.automation.breakpointResume({
+              x: 0,
+              y: 0,
+              w: 0,
+              h: 0,
+              text: "",
+              tTrigger: 0,
+            });
+            pendingTTrigger.current = 0;
+            setShowOCRSelection(false);
+          }}
+        />
+      )}
     </div>
   );
 };
