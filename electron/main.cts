@@ -101,6 +101,17 @@ function findSystemFlashPlugin(): string | null {
   return null;
 }
 
+// ---------------------------------------------------------------
+// Disable Chromium sandbox so Cheat Engine's speed hack can hook
+// the timing APIs (timeGetTime / QueryPerformanceCounter) inside
+// the renderer / PPAPI Flash plugin process.
+// Without this, the sandbox blocks third-party DLL injection and
+// memory patching that CE relies on for speed changes.
+// ---------------------------------------------------------------
+app.commandLine.appendSwitch("disable-features", "RendererCodeIntegrity");
+app.commandLine.appendSwitch("disable-frame-rate-limit");
+app.commandLine.appendSwitch("disable-gpu-vsync");
+
 const flashPath = findSystemFlashPlugin();
 
 if (flashPath) {
@@ -214,6 +225,7 @@ function createWindow() {
       webviewTag: true, // Enable <webview> tag
       plugins: true, // Enable plugins (Flash)
       preload: path.join(__dirname, "preload.cjs"),
+      backgroundThrottling: false,
     },
     backgroundColor: "#00000000", // Allow transparency
   });
@@ -421,6 +433,28 @@ ipcMain.handle("perform-ocr", async (_event, imageBase64: string) => {
     return { success: true, data: result };
   } catch (e: any) {
     return { success: false, error: e.message };
+  }
+});
+
+// Get Flash Plugin PID for Cheat Engine
+ipcMain.handle("get-flash-pid", () => {
+  try {
+    const metrics = app.getAppMetrics();
+    // In Electron, the plugin process has type 'Pepper Plugin'
+    const flashProcess = metrics.find((m) => m.type === "Pepper Plugin");
+    if (flashProcess) {
+      console.log("Found Flash Plugin PID:", flashProcess.pid);
+      return flashProcess.pid;
+    }
+
+    // Fallback search for PPAPI process
+    const ppapiProcess = metrics.find(
+      (m) => (m.type as string) === "Plugin" || m.name?.includes("ppapi"),
+    );
+    return ppapiProcess ? ppapiProcess.pid : null;
+  } catch (e) {
+    console.error("Failed to get Flash PID:", e);
+    return null;
   }
 });
 

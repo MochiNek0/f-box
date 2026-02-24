@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("electron", {
   updateBossKey: (key: string) => ipcRenderer.send("update-boss-key", key),
   openExternal: (url: string) => ipcRenderer.send("open-external", url),
   getKeymapConfig: () => ipcRenderer.invoke("get-keymap-config"),
+  getFlashPid: () => ipcRenderer.invoke("get-flash-pid"),
   saveKeymapConfig: (config: any) =>
     ipcRenderer.send("save-keymap-config", config),
   suspendBossKey: () => ipcRenderer.send("suspend-boss-key"),

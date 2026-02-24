@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import { useTabStore } from "../../../store/useTabStore";
 import { ZoomIn, ZoomOut, RefreshCw, ArrowLeft, Maximize2 } from "lucide-react";
 import { IconButton } from "../../common/IconButton";
@@ -13,6 +13,7 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
   const tab = tabs.find((t) => t.id === id);
   const zoomFactor = tab?.zoomFactor || 1;
   const webviewRef = useRef<any>(null);
+  const [pid, setPid] = useState<number | null>(null);
 
   useEffect(() => {
     if (webviewRef.current) {
@@ -26,8 +27,15 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
         }
       };
 
-      const onDomReady = () => {
+      const onDomReady = async () => {
         applyZoom();
+        try {
+          // Get the actual Flash plugin process PID instead of the webview PID
+          const osPid = await (window as any).electron.getFlashPid();
+          setPid(osPid);
+        } catch (e) {
+          console.warn("Failed to get Flash PID:", e);
+        }
       };
 
       const onDidFinishLoad = () => {
@@ -76,6 +84,18 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
           <div className="text-[10px] text-zinc-500 truncate max-w-[150px] md:max-w-[300px] hidden sm:block">
             {url}
           </div>
+          {pid && (
+            <>
+              <div className="h-4 w-px bg-zinc-800 hidden md:block" />
+              <div
+                className="text-[10px] text-emerald-400 font-mono hidden sm:flex items-center gap-1 cursor-help"
+                title="Flash Plugin Process ID (在 CE 中附加此进程以进行变速)"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                CE PID: {pid}
+              </div>
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-1 bg-zinc-800/50 p-1 rounded-lg flex-shrink-0">
@@ -107,7 +127,11 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
           <webview
             ref={webviewRef}
             src={url}
-            {...({ plugins: "true", allowpopups: "true" } as any)} // Enable Flash & Popups
+            {...({
+              plugins: "true",
+              allowpopups: "true",
+              disablewebsecurity: "true",
+            } as any)} // Enable Flash & Popups
             className="w-full h-full bg-black shadow-2xl"
             style={{ width: "1280px", height: "100%" }}
           />
