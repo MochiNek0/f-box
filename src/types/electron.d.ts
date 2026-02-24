@@ -1,5 +1,6 @@
 export interface AutomationConfig {
   repeatCount?: number;
+  steps?: Array<{ id: string; key: string; intervalMs: number }>;
 }
 
 export interface AutomationAPI {
@@ -14,6 +15,10 @@ export interface AutomationAPI {
     config: AutomationConfig,
   ) => Promise<{ success: boolean; error?: string }>;
   getConfig: (name: string) => Promise<AutomationConfig | null>;
+  saveScript: (
+    name: string,
+    events: any[],
+  ) => Promise<{ success: boolean; error?: string }>;
   onStatus: (callback: (status: string) => void) => void;
   offStatus: () => void;
   onBreakpointTriggered: (

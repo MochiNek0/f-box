@@ -449,39 +449,13 @@ ipcMain.handle("ocr-uninstall", async () => {
 function getAutomationRuntime(): {
   exe: string;
   args: string[];
-  isAhk: boolean;
 } {
-  const possibleAhkPaths = [
-    "C:\\Program Files\\AutoHotkey\\v2\\AutoHotkey.exe",
-    "C:\\Program Files (x86)\\AutoHotkey\\v2\\AutoHotkey.exe",
-    path.join(
-      os.homedir(),
-      "AppData\\Local\\Programs\\AutoHotkey\\v2\\AutoHotkey.exe",
-    ),
-  ];
-
-  let ahkPath = "";
-  for (const p of possibleAhkPaths) {
-    if (fs.existsSync(p)) {
-      ahkPath = p;
-      break;
-    }
-  }
-
-  const ahkSourcePath = app.isPackaged
-    ? path.join(process.resourcesPath, "automation.ahk")
-    : path.join(__dirname, "..", "public", "assets", "automation.ahk");
   const exePath = app.isPackaged
     ? path.join(process.resourcesPath, "automation.exe")
     : path.join(__dirname, "..", "public", "assets", "automation.exe");
 
-  if (!app.isPackaged && ahkPath && fs.existsSync(ahkSourcePath)) {
-    console.log("Using AHK Source:", ahkSourcePath);
-    return { exe: ahkPath, args: [ahkSourcePath], isAhk: true };
-  }
-
   console.log("Using Automation EXE:", exePath);
-  return { exe: exePath, args: [], isAhk: false };
+  return { exe: exePath, args: [] };
 }
 
 function ensureScriptDirs() {
@@ -566,6 +540,21 @@ ipcMain.handle("automation-start-record", async (_event, name: string) => {
     return { success: false, error: e.message };
   }
 });
+
+// Save Script Directly (used by Auto Clicker)
+ipcMain.handle(
+  "automation-save-script",
+  async (_event, name: string, events: any[]) => {
+    ensureScriptDirs();
+    const scriptPath = path.join(scriptsDir, `${name}.json`);
+    try {
+      fs.writeFileSync(scriptPath, JSON.stringify(events, null, 2), "utf-8");
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  },
+);
 
 // Stop Recording
 ipcMain.handle("automation-stop-record", async () => {
@@ -663,7 +652,7 @@ ipcMain.handle("automation-list-scripts", async () => {
   try {
     const files = fs.readdirSync(scriptsDir);
     return files
-      .filter((f: string) => f.endsWith(".json"))
+      .filter((f: string) => f.endsWith(".json") && !f.startsWith("_"))
       .map((f: string) => f.replace(".json", ""));
   } catch {
     return [];

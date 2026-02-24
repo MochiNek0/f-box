@@ -5,6 +5,7 @@ import { NavigationTab } from "../../common/NavigationTab";
 import { HotkeysTab } from "./HotkeysTab";
 import { KeymapTab } from "./KeymapTab";
 import { AutomationTab } from "./AutomationTab";
+import { ClickerTab } from "./ClickerTab";
 
 interface SettingsProps {
   isOpen: boolean;
@@ -34,6 +35,7 @@ export const Settings: React.FC<SettingsProps> = ({
             { id: "hotkeys", label: "快捷键设置" },
             { id: "keymap", label: "按键映射" },
             { id: "automation", label: "操作自动化" },
+            { id: "clicker", label: "连点器" },
           ]}
           activeId={activeTab}
           onChange={setActiveTab}
@@ -45,6 +47,7 @@ export const Settings: React.FC<SettingsProps> = ({
           {activeTab === "automation" && (
             <AutomationTab onOpenRecorder={onOpenRecorder} onClose={onClose} />
           )}
+          {activeTab === "clicker" && <ClickerTab />}
         </div>
       </div>
     </Modal>

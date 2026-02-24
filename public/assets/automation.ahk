@@ -245,7 +245,6 @@ RunPlay(scriptFile, maxLoops := 0) {
     }
 
     FileAppend("STATUS|PLAYING`n", "*", "UTF-8")
-    LogDebug("Starting playback: " scriptFile)
 
     ; 清理旧的信号文件
     Loop Files, scriptFile ".*" {
@@ -288,7 +287,6 @@ RunPlay(scriptFile, maxLoops := 0) {
 
                 waitStart := QPC()
                 FileAppend("REQ|OCR|" ocrRequestId "|" i "|" evt.x "|" evt.y "|" evt.w "|" evt.h "|" evt.text "`n", "*", "UTF-8")
-                LogDebug("OCR Request " ocrRequestId " sent at t_trigger=" tTrigger " for event " i)
                 
                 ; 等待回应
                 resolved := false
@@ -299,13 +297,11 @@ RunPlay(scriptFile, maxLoops := 0) {
                     if FileExist(continueFile) {
                         try FileDelete(continueFile)
                         resolved := true
-                        LogDebug("OCR " ocrRequestId " resolved: CONTINUE")
                     }
                     if FileExist(stopScriptFile) {
                         try FileDelete(stopScriptFile)
                         shouldStop := true
                         resolved := true
-                        LogDebug("OCR " ocrRequestId " resolved: STOP_SCRIPT")
                     }
                     Sleep(100)
                 }
@@ -336,7 +332,6 @@ RunPlay(scriptFile, maxLoops := 0) {
     }
 
     FileAppend("STATUS|STOPPED|" (shouldStop ? loopCount : loopCount-1) "`n", "*", "UTF-8")
-    LogDebug("Playback stopped at loop " loopCount ". shouldStop: " (shouldStop?"true":"false"))
 }
 
 ExecuteEvent(evt) {

@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld("electron", {
       ipcRenderer.invoke("automation-save-config", name, config),
     getConfig: (name: string) =>
       ipcRenderer.invoke("automation-get-config", name),
+    saveScript: (name: string, events: any[]) =>
+      ipcRenderer.invoke("automation-save-script", name, events),
     onStatus: (callback: (status: string) => void) => {
       ipcRenderer.on("automation-status", (_event, status) => callback(status));
     },
