@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("electron", {
   checkFlash: () => ipcRenderer.invoke("check-flash"),
   updateBossKey: (key: string) => ipcRenderer.send("update-boss-key", key),
   openExternal: (url: string) => ipcRenderer.send("open-external", url),
+  getAppVersion: () => ipcRenderer.invoke("get-app-version"),
   getKeymapConfig: () => ipcRenderer.invoke("get-keymap-config"),
   getFlashPid: () => ipcRenderer.invoke("get-flash-pid"),
   saveKeymapConfig: (config: any) =>

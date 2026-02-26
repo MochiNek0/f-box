@@ -379,6 +379,11 @@ ipcMain.handle("get-keymap-config", () => {
   return parseIni(content);
 });
 
+// App 版本信息
+ipcMain.handle("get-app-version", () => {
+  return app.getVersion();
+});
+
 // 保存配置（始终完整保存并根据 enabled 重启 AHK）
 ipcMain.on(
   "save-keymap-config",

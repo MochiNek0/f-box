@@ -56,6 +56,7 @@ export interface IElectronAPI {
   checkFlash: () => Promise<boolean>;
   updateBossKey: (key: string) => void;
   openExternal: (url: string) => void;
+  getAppVersion: () => Promise<string>;
   getKeymapConfig: () => Promise<{
     enabled: boolean;
     mappings: Array<{ source: string; target: string }>;
