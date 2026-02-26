@@ -22,6 +22,14 @@ contextBridge.exposeInMainWorld("electron", {
   ocrGetStatus: () => ipcRenderer.invoke("ocr-get-status"),
   ocrInstall: () => ipcRenderer.invoke("ocr-install"),
   ocrUninstall: () => ipcRenderer.invoke("ocr-uninstall"),
+  onOcrInstallProgress: (callback: (percent: number) => void) => {
+    ipcRenderer.on("ocr-install-progress", (_event, percent) =>
+      callback(percent),
+    );
+  },
+  offOcrInstallProgress: () => {
+    ipcRenderer.removeAllListeners("ocr-install-progress");
+  },
 
   // Automation API
   automation: {

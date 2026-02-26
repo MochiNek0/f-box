@@ -146,18 +146,37 @@ export class OcrManager {
     }
   }
 
-  public async install(): Promise<boolean> {
-    const url =
+  public async install(
+    onProgress?: (percent: number) => void,
+  ): Promise<boolean> {
+    const rawUrl =
       "https://github.com/MochiNek0/f-box/releases/download/ocr-plugin/ocr.zip";
+    const mirrorUrl = `https://ghp.ci/${rawUrl}`;
     const tempDir = app.getPath("temp");
     const zipPath = path.join(tempDir, `ocr_${Date.now()}.zip`);
     const destDir = this.getPluginPath();
 
-    try {
+    const tryDownload = async (url: string) => {
       console.log(`Downloading OCR plugin from ${url}...`);
-      await this.downloadFile(url, zipPath);
+      await this.downloadFile(url, zipPath, onProgress);
+    };
+
+    try {
+      try {
+        await tryDownload(rawUrl);
+      } catch (e) {
+        console.warn(
+          `Failed to download from primary URL, trying mirror...`,
+          e,
+        );
+        // Reset progress if it failed halfway
+        if (onProgress) onProgress(0);
+        await tryDownload(mirrorUrl);
+      }
 
       console.log(`Extracting OCR plugin to ${destDir}...`);
+      if (onProgress) onProgress(100); // 100% means download finished, now extracting
+
       if (!fs.existsSync(destDir)) {
         fs.mkdirSync(destDir, { recursive: true });
       }
@@ -211,12 +230,16 @@ export class OcrManager {
     }
   }
 
-  private downloadFile(url: string, dest: string): Promise<void> {
+  private downloadFile(
+    url: string,
+    dest: string,
+    onProgress?: (percent: number) => void,
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       const request = https.get(url, (response) => {
         if (response.statusCode === 302 || response.statusCode === 301) {
           // Follow redirect
-          this.downloadFile(response.headers.location!, dest)
+          this.downloadFile(response.headers.location!, dest, onProgress)
             .then(resolve)
             .catch(reject);
           return;
@@ -227,7 +250,21 @@ export class OcrManager {
           return;
         }
 
+        const totalSize = parseInt(
+          response.headers["content-length"] || "0",
+          10,
+        );
+        let downloadedSize = 0;
+
         const file = fs.createWriteStream(dest);
+        response.on("data", (chunk) => {
+          downloadedSize += chunk.length;
+          if (totalSize > 0 && onProgress) {
+            const percent = Math.round((downloadedSize / totalSize) * 100);
+            onProgress(percent);
+          }
+        });
+
         response.pipe(file);
         file.on("finish", () => {
           file.close();
@@ -247,7 +284,13 @@ export class OcrManager {
     const dest = this.getPluginPath();
     try {
       if (fs.existsSync(dest)) {
-        fs.rmSync(dest, { recursive: true, force: true });
+        // Electron 11 uses an older Node version that may not have fs.rmSync
+        if (fs.rmSync) {
+          fs.rmSync(dest, { recursive: true, force: true });
+        } else {
+          // Fallback for older Node.js (before 14.14.0)
+          fs.rmdirSync(dest, { recursive: true });
+        }
       }
       return true;
     } catch (e) {

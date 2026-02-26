@@ -36,6 +36,8 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
   const [ocrInstalled, setOcrInstalled] = useState(false);
   const [isInstallingOcr, setIsInstallingOcr] = useState(false);
 
+  const [ocrInstallProgress, setOcrInstallProgress] = useState(0);
+
   const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refreshScripts = useCallback(async () => {
@@ -100,8 +102,18 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
       }
     });
 
+    window.electron.onOcrInstallProgress((percent) => {
+      setOcrInstallProgress(percent);
+      if (percent < 100) {
+        setStatusMessage(`正在下载 OCR 扩展包... ${percent}%`);
+      } else {
+        setStatusMessage("下载完成，正在解压安装...");
+      }
+    });
+
     return () => {
       window.electron.automation.offStatus();
+      window.electron.offOcrInstallProgress();
     };
   }, [isRecording, isPlaying, refreshScripts]);
 
@@ -173,14 +185,16 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
 
   const handleInstallOcr = async () => {
     setIsInstallingOcr(true);
-    setStatusMessage("正在从远程服务器下载并解压 OCR 扩展包...");
+    setOcrInstallProgress(0);
+    setStatusMessage("正在准备下载 OCR 扩展包...");
     const result = await window.electron.ocrInstall();
     setIsInstallingOcr(false);
     if (result.success) {
       setOcrInstalled(true);
       setStatusMessage("✅ OCR 扩展包下载并自动安装成功");
+      setOcrInstallProgress(100);
     } else {
-      setStatusMessage("❌ OCR 扩展包下载或解压失败，请检查网络");
+      setStatusMessage("❌ OCR 扩展包下载或解压失败，请尝试检查网络或使用代理");
     }
   };
 
@@ -261,15 +275,25 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
           </div>
           <div>
             {!ocrInstalled ? (
-              <Button
-                onClick={handleInstallOcr}
-                disabled={isInstallingOcr}
-                variant="primary"
-                className="flex whitespace-nowrap items-center"
-              >
-                <Download size={14} className="mr-1.5" />
-                下载扩展包
-              </Button>
+              <div className="flex flex-col items-end gap-2">
+                <Button
+                  onClick={handleInstallOcr}
+                  disabled={isInstallingOcr}
+                  variant="primary"
+                  className="flex whitespace-nowrap items-center"
+                >
+                  <Download size={14} className="mr-1.5" />
+                  下载扩展包
+                </Button>
+                {isInstallingOcr && (
+                  <div className="w-32 h-1 bg-zinc-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-orange-500 transition-all duration-300"
+                      style={{ width: `${ocrInstallProgress}%` }}
+                    />
+                  </div>
+                )}
+              </div>
             ) : (
               <Button
                 onClick={handleUninstallOcr}

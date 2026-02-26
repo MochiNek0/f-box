@@ -74,6 +74,8 @@ export interface IElectronAPI {
   ocrGetStatus: () => Promise<{ installed: boolean }>;
   ocrInstall: () => Promise<{ success: boolean }>;
   ocrUninstall: () => Promise<{ success: boolean }>;
+  onOcrInstallProgress: (callback: (percent: number) => void) => void;
+  offOcrInstallProgress: () => void;
   automation: AutomationAPI;
 }
 

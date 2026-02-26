@@ -464,9 +464,11 @@ ipcMain.handle("ocr-get-status", async () => {
   return { installed: ocrManager.isInstalled() };
 });
 
-ipcMain.handle("ocr-install", async () => {
+ipcMain.handle("ocr-install", async (event) => {
   if (!ocrManager) ocrManager = new OcrManager();
-  const success = await ocrManager.install();
+  const success = await ocrManager.install((percent) => {
+    event.sender.send("ocr-install-progress", percent);
+  });
   return { success };
 });
 
