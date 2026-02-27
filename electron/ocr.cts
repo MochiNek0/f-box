@@ -6,6 +6,8 @@ import os from "os";
 import https from "https";
 import AdmZip from "adm-zip";
 
+import { getFastestProxy } from "./proxy-utils.cjs";
+
 interface OcrRequest {
   resolve: (data: any) => void;
   reject: (err: any) => void;
@@ -151,7 +153,7 @@ export class OcrManager {
   ): Promise<boolean> {
     const rawUrl =
       "https://github.com/MochiNek0/f-box/releases/download/ocr-plugin/ocr.zip";
-    const mirrorUrl = `https://ghp.ci/${rawUrl}`;
+    const downloadUrl = await getFastestProxy(rawUrl);
     const tempDir = app.getPath("temp");
     const zipPath = path.join(tempDir, `ocr_${Date.now()}.zip`);
     const destDir = this.getPluginPath();
@@ -163,15 +165,15 @@ export class OcrManager {
 
     try {
       try {
-        await tryDownload(rawUrl);
+        await tryDownload(downloadUrl);
       } catch (e) {
         console.warn(
-          `Failed to download from primary URL, trying mirror...`,
+          `Failed to download from selected URL, trying original URL...`,
           e,
         );
         // Reset progress if it failed halfway
         if (onProgress) onProgress(0);
-        await tryDownload(mirrorUrl);
+        await tryDownload(rawUrl);
       }
 
       console.log(`Extracting OCR plugin to ${destDir}...`);
@@ -284,8 +286,7 @@ export class OcrManager {
     const dest = this.getPluginPath();
     try {
       if (fs.existsSync(dest)) {
-        // Electron 11 uses an older Node version that may not have fs.rmSync
-        if (fs.rmSync) {
+        if (typeof fs.rmSync === "function") {
           fs.rmSync(dest, { recursive: true, force: true });
         } else {
           // Fallback for older Node.js (before 14.14.0)

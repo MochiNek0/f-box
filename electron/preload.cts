@@ -23,6 +23,13 @@ contextBridge.exposeInMainWorld("electron", {
   ocrGetStatus: () => ipcRenderer.invoke("ocr-get-status"),
   ocrInstall: () => ipcRenderer.invoke("ocr-install"),
   ocrUninstall: () => ipcRenderer.invoke("ocr-uninstall"),
+  downloadUpdate: (url: string) => ipcRenderer.invoke("download-update", url),
+  onUpdateProgress: (callback: (percent: number) => void) => {
+    ipcRenderer.on("update-progress", (_event, percent) => callback(percent));
+  },
+  offUpdateProgress: () => {
+    ipcRenderer.removeAllListeners("update-progress");
+  },
   onOcrInstallProgress: (callback: (percent: number) => void) => {
     ipcRenderer.on("ocr-install-progress", (_event, percent) =>
       callback(percent),

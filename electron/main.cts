@@ -15,6 +15,9 @@ import os from "os";
 import { spawn, ChildProcess } from "child_process";
 
 import { OcrManager } from "./ocr.cjs";
+import AdmZip from "adm-zip";
+import https from "https";
+import { getFastestProxy } from "./proxy-utils.cjs";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -878,5 +881,137 @@ ipcMain.handle("automation-get-screenshot", async () => {
     return "data:image/png;base64," + buffer.toString("base64");
   } catch (e: any) {
     return { error: e.message };
+  }
+});
+
+ipcMain.handle("download-update", async (event, url: string) => {
+  try {
+    const downloadUrl = await getFastestProxy(url);
+    console.log("Using URL for download:", downloadUrl);
+
+    const tempDir = path.join(app.getPath("temp"), "f-box-update");
+    if (fs.existsSync(tempDir)) {
+      if (typeof fs.rmSync === "function") {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } else {
+        // Fallback for older Node.js versions
+        fs.rmdirSync(tempDir, { recursive: true });
+      }
+    }
+    fs.mkdirSync(tempDir, { recursive: true });
+
+    const zipPath = path.join(tempDir, "update.zip");
+
+    const downloadFile = (downloadUrl: string): Promise<string> => {
+      return new Promise((resolve, reject) => {
+        https
+          .get(downloadUrl, (response) => {
+            if (
+              response.statusCode === 301 ||
+              response.statusCode === 302 ||
+              response.statusCode === 307 ||
+              response.statusCode === 308
+            ) {
+              // Handle redirect
+              return resolve(downloadFile(response.headers.location!));
+            }
+
+            if (response.statusCode !== 200) {
+              return reject(new Error(`HTTP ${response.statusCode}`));
+            }
+
+            const totalSize = parseInt(
+              response.headers["content-length"] || "0",
+              10,
+            );
+            let downloadedSize = 0;
+            const file = fs.createWriteStream(zipPath);
+
+            response.on("data", (chunk) => {
+              downloadedSize += chunk.length;
+              if (totalSize > 0) {
+                const percent = Math.round((downloadedSize / totalSize) * 100);
+                event.sender.send("update-progress", percent);
+              }
+            });
+
+            response.pipe(file);
+
+            file.on("finish", () => {
+              file.close(() => resolve(zipPath));
+            });
+
+            file.on("error", (err) => {
+              fs.unlink(zipPath, () => reject(err));
+            });
+          })
+          .on("error", reject);
+      });
+    };
+
+    await downloadFile(downloadUrl);
+
+    // Extract zip
+    const zip = new AdmZip(zipPath);
+    zip.extractAllTo(tempDir, true);
+
+    // Find the new exe
+    const files = fs.readdirSync(tempDir);
+    const newExe = files.find(
+      (f) =>
+        f.endsWith(".exe") &&
+        (f.toLowerCase().includes("f-box") ||
+          f.toLowerCase().includes("setup")),
+    );
+
+    if (!newExe) {
+      throw new Error("Could not find new executable in zip");
+    }
+
+    const newExePath = path.join(tempDir, newExe);
+    const currentExePath = app.getPath("exe");
+    const batPath = path.join(tempDir, "update.bat");
+
+    // BAT script: wait for original process to exit, copy new exe, restart, delete temp
+    const batContent = `
+@echo off
+setlocal
+set "OLD_EXE=${currentExePath}"
+set "NEW_EXE=${newExePath}"
+
+echo Waiting for old version to close...
+:wait_loop
+tasklist /FI "IMAGENAME eq ${path.basename(currentExePath)}" 2>NUL | find /I /N "${path.basename(currentExePath)}">NUL
+if "%ERRORLEVEL%"=="0" (
+    timeout /t 1 /nobreak >nul
+    goto wait_loop
+)
+
+echo Replacing executable...
+copy /y "%NEW_EXE%" "%OLD_EXE%"
+if errorlevel 1 (
+    echo Error copying file!
+    pause
+    exit /b 1
+)
+
+echo Starting new version...
+start "" "%OLD_EXE%"
+exit
+`.trim();
+
+    fs.writeFileSync(batPath, batContent);
+
+    // Launch BAT detached
+    spawn("cmd.exe", ["/c", batPath], {
+      detached: true,
+      stdio: "ignore",
+    }).unref();
+
+    app.quit();
+    return { success: true };
+  } catch (error: any) {
+    console.error("Update error:", error);
+    return { success: false, error: error.message };
   }
 });
