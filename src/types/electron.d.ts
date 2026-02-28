@@ -56,6 +56,7 @@ export interface IElectronAPI {
   checkFlash: () => Promise<boolean>;
   updateBossKey: (key: string) => void;
   openExternal: (url: string) => void;
+  getAppVersion: () => Promise<string>;
   getKeymapConfig: () => Promise<{
     enabled: boolean;
     mappings: Array<{ source: string; target: string }>;
@@ -74,6 +75,11 @@ export interface IElectronAPI {
   ocrGetStatus: () => Promise<{ installed: boolean }>;
   ocrInstall: () => Promise<{ success: boolean }>;
   ocrUninstall: () => Promise<{ success: boolean }>;
+  downloadUpdate: (
+    url: string,
+  ) => Promise<{ success: boolean; error?: string }>;
+  onUpdateProgress: (callback: (percent: number) => void) => void;
+  offUpdateProgress: () => void;
   onOcrInstallProgress: (callback: (percent: number) => void) => void;
   offOcrInstallProgress: () => void;
   automation: AutomationAPI;

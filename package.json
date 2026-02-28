@@ -20,6 +20,7 @@
   "build": {
     "appId": "com.f-box.browser",
     "productName": "F-Box",
+    "artifactName": "${productName}.${ext}",
     "directories": {
       "output": "release"
     },

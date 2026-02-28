@@ -6,6 +6,8 @@ import os from "os";
 import https from "https";
 import AdmZip from "adm-zip";
 
+import { getFastestProxy } from "./proxy-utils.cjs";
+
 interface OcrRequest {
   resolve: (data: any) => void;
   reject: (err: any) => void;
@@ -151,7 +153,7 @@ export class OcrManager {
   ): Promise<boolean> {
     const rawUrl =
       "https://github.com/MochiNek0/f-box/releases/download/ocr-plugin/ocr.zip";
-    const mirrorUrl = `https://ghp.ci/${rawUrl}`;
+    const downloadUrl = await getFastestProxy(rawUrl);
     const tempDir = app.getPath("temp");
     const zipPath = path.join(tempDir, `ocr_${Date.now()}.zip`);
     const destDir = this.getPluginPath();
@@ -163,42 +165,53 @@ export class OcrManager {
 
     try {
       try {
-        await tryDownload(rawUrl);
+        await tryDownload(downloadUrl);
       } catch (e) {
         console.warn(
-          `Failed to download from primary URL, trying mirror...`,
+          `Failed to download from selected URL, trying original URL...`,
           e,
         );
         // Reset progress if it failed halfway
         if (onProgress) onProgress(0);
-        await tryDownload(mirrorUrl);
+        await tryDownload(rawUrl);
       }
 
       console.log(`Extracting OCR plugin to ${destDir}...`);
       if (onProgress) onProgress(100); // 100% means download finished, now extracting
 
-      if (!fs.existsSync(destDir)) {
-        fs.mkdirSync(destDir, { recursive: true });
+      // Clean destination directory first to remove old version files
+      if (fs.existsSync(destDir)) {
+        console.log("Cleaning old OCR plugin directory...");
+        if (typeof fs.rmSync === "function") {
+          fs.rmSync(destDir, { recursive: true, force: true });
+        } else {
+          fs.rmdirSync(destDir, { recursive: true });
+        }
       }
+      fs.mkdirSync(destDir, { recursive: true });
 
       const zip = new AdmZip(zipPath);
       const zipEntries = zip.getEntries();
 
-      // Check if all entries are inside a single root folder
-      let rootFolder = "";
-      if (zipEntries.length > 0) {
-        const firstEntry = zipEntries[0].entryName.split("/")[0];
-        const allInRoot = zipEntries.every(
-          (e) =>
-            e.entryName.startsWith(firstEntry + "/") ||
-            e.entryName === firstEntry ||
-            e.entryName === firstEntry + "/",
-        );
-        if (allInRoot) {
-          rootFolder = firstEntry;
-        }
+      if (zipEntries.length === 0) {
+        throw new Error("OCR plugin zip is empty");
       }
 
+      // Check if all entries are inside a single root folder
+      let rootFolder = "";
+      const firstEntry = zipEntries[0].entryName.split("/")[0];
+      const allInRoot = zipEntries.every(
+        (e) =>
+          e.entryName.startsWith(firstEntry + "/") ||
+          e.entryName === firstEntry ||
+          e.entryName === firstEntry + "/",
+      );
+      if (allInRoot) {
+        rootFolder = firstEntry;
+        console.log(`Detected single root folder: ${rootFolder}`);
+      }
+
+      let extractedCount = 0;
       zipEntries.forEach((entry) => {
         if (entry.isDirectory) return;
 
@@ -207,14 +220,25 @@ export class OcrManager {
           targetPath = targetPath.substring(rootFolder.length + 1);
         }
 
+        // Skip entries that would extract outside destDir
         const fullPath = path.join(destDir, targetPath);
+        const normalizedFull = path.normalize(fullPath);
+        const normalizedDest = path.normalize(destDir);
+        if (!normalizedFull.startsWith(normalizedDest)) {
+          console.warn(`Skipping potentially malicious entry: ${entry.entryName}`);
+          return;
+        }
+
         const dir = path.dirname(fullPath);
         if (!fs.existsSync(dir)) {
           fs.mkdirSync(dir, { recursive: true });
         }
 
         fs.writeFileSync(fullPath, entry.getData());
+        extractedCount++;
       });
+
+      console.log(`Extracted ${extractedCount} files to ${destDir}`);
 
       // Clean up temp zip
       if (fs.existsSync(zipPath)) {
@@ -284,8 +308,7 @@ export class OcrManager {
     const dest = this.getPluginPath();
     try {
       if (fs.existsSync(dest)) {
-        // Electron 11 uses an older Node version that may not have fs.rmSync
-        if (fs.rmSync) {
+        if (typeof fs.rmSync === "function") {
           fs.rmSync(dest, { recursive: true, force: true });
         } else {
           // Fallback for older Node.js (before 14.14.0)

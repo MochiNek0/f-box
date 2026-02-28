@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("electron", {
   checkFlash: () => ipcRenderer.invoke("check-flash"),
   updateBossKey: (key: string) => ipcRenderer.send("update-boss-key", key),
   openExternal: (url: string) => ipcRenderer.send("open-external", url),
+  getAppVersion: () => ipcRenderer.invoke("get-app-version"),
   getKeymapConfig: () => ipcRenderer.invoke("get-keymap-config"),
   getFlashPid: () => ipcRenderer.invoke("get-flash-pid"),
   saveKeymapConfig: (config: any) =>
@@ -22,6 +23,13 @@ contextBridge.exposeInMainWorld("electron", {
   ocrGetStatus: () => ipcRenderer.invoke("ocr-get-status"),
   ocrInstall: () => ipcRenderer.invoke("ocr-install"),
   ocrUninstall: () => ipcRenderer.invoke("ocr-uninstall"),
+  downloadUpdate: (url: string) => ipcRenderer.invoke("download-update", url),
+  onUpdateProgress: (callback: (percent: number) => void) => {
+    ipcRenderer.on("update-progress", (_event, percent) => callback(percent));
+  },
+  offUpdateProgress: () => {
+    ipcRenderer.removeAllListeners("update-progress");
+  },
   onOcrInstallProgress: (callback: (percent: number) => void) => {
     ipcRenderer.on("ocr-install-progress", (_event, percent) =>
       callback(percent),
