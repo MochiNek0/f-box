@@ -33,7 +33,7 @@ export interface AutomationAPI {
     text: string;
     tTrigger?: number;
   }) => Promise<{ success: boolean; error?: string }>;
-  getScreenshot: () => Promise<string | { error: string }>;
+  getScreenshot: () => Promise<{ data: string } | { error: string }>;
   onOCRRequest: (
     callback: (data: {
       requestId: string;

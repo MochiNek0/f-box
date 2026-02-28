@@ -6,19 +6,20 @@ import https from "https";
  */
 const GITHUB_PROXIES = [
   // 高优先级 - 稳定性最好的代理
-  { url: "https://ghp.ci/", priority: 1, name: "ghp.ci" },
-  { url: "https://mirror.ghproxy.com/", priority: 2, name: "ghproxy" },
-  { url: "https://gh-proxy.llync.com/", priority: 3, name: "gh-proxy-llync" },
-  { url: "https://github.moeyy.xyz/", priority: 4, name: "moeyy" },
-  { url: "https://ghproxy.cc/", priority: 5, name: "ghproxy.cc" },
-  { url: "https://ghproxy.net/", priority: 6, name: "ghproxy.net" },
+  { url: "https://xget.xi-xu.me/gh/", priority: 1, name: "x-get" },
+  { url: "https://ghp.ci/", priority: 2, name: "ghp.ci" },
+  { url: "https://mirror.ghproxy.com/", priority: 3, name: "ghproxy" },
+  { url: "https://gh-proxy.llync.com/", priority: 4, name: "gh-proxy-llync" },
+  { url: "https://github.moeyy.xyz/", priority: 5, name: "moeyy" },
+  { url: "https://ghproxy.cc/", priority: 6, name: "ghproxy.cc" },
+  { url: "https://ghproxy.net/", priority: 7, name: "ghproxy.net" },
 ];
 
 /**
  * 代理测试结果
  */
 interface ProxyTestResult {
-  proxy: typeof GITHUB_PROXIES[0];
+  proxy: (typeof GITHUB_PROXIES)[0];
   speed: number;
   success: boolean;
   error?: string;
@@ -62,9 +63,10 @@ function normalizeGitHubUrl(url: string): string {
  */
 function isGitHubUrl(url: string): boolean {
   const cleanUrl = normalizeGitHubUrl(url);
-  return cleanUrl.includes("github.com") &&
-         (cleanUrl.includes("/releases/download/") ||
-          cleanUrl.includes("/archive/"));
+  return (
+    cleanUrl.includes("github.com") &&
+    (cleanUrl.includes("/releases/download/") || cleanUrl.includes("/archive/"))
+  );
 }
 
 /**
@@ -75,22 +77,27 @@ function isGitHubUrl(url: string): boolean {
  */
 async function testUrlConnectivity(
   url: string,
-  timeout: number = 5000
+  timeout: number = 5000,
 ): Promise<{ speed: number; statusCode: number | undefined }> {
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
 
-    const req = https.request(url, {
-      method: "HEAD",
-      timeout,
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-      }
-    }, (res) => {
-      const speed = Date.now() - startTime;
-      res.resume(); // 确保释放连接
-      resolve({ speed, statusCode: res.statusCode });
-    });
+    const req = https.request(
+      url,
+      {
+        method: "HEAD",
+        timeout,
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        },
+      },
+      (res) => {
+        const speed = Date.now() - startTime;
+        res.resume(); // 确保释放连接
+        resolve({ speed, statusCode: res.statusCode });
+      },
+    );
 
     req.on("error", (err) => reject(err));
 
@@ -111,31 +118,30 @@ async function testUrlConnectivity(
  * @returns 测试结果
  */
 async function testProxy(
-  proxy: typeof GITHUB_PROXIES[0],
+  proxy: (typeof GITHUB_PROXIES)[0],
   githubUrl: string,
-  timeout: number = 8000
+  timeout: number = 8000,
 ): Promise<ProxyTestResult> {
   const fullUrl = `${proxy.url}${githubUrl}`;
 
   try {
     const { speed, statusCode } = await testUrlConnectivity(fullUrl, timeout);
 
-    const isSuccess = statusCode !== undefined &&
-                      statusCode >= 200 &&
-                      statusCode < 400;
+    const isSuccess =
+      statusCode !== undefined && statusCode >= 200 && statusCode < 400;
 
     return {
       proxy,
       speed,
       success: isSuccess,
-      error: isSuccess ? undefined : `HTTP ${statusCode}`
+      error: isSuccess ? undefined : `HTTP ${statusCode}`,
     };
   } catch (error) {
     return {
       proxy,
       speed: -1,
       success: false,
-      error: error instanceof Error ? error.message : "Unknown error"
+      error: error instanceof Error ? error.message : "Unknown error",
     };
   }
 }
@@ -184,14 +190,14 @@ function cacheProxy(githubUrl: string, proxyUrl: string): void {
 async function batchTestProxies(
   proxies: typeof GITHUB_PROXIES,
   githubUrl: string,
-  concurrency: number = 3
+  concurrency: number = 3,
 ): Promise<ProxyTestResult[]> {
   const results: ProxyTestResult[] = [];
 
   // 按优先级分批测试
   for (let i = 0; i < proxies.length; i += concurrency) {
     const batch = proxies.slice(i, i + concurrency);
-    const batchPromises = batch.map(proxy => testProxy(proxy, githubUrl));
+    const batchPromises = batch.map((proxy) => testProxy(proxy, githubUrl));
     const batchResults = await Promise.all(batchPromises);
 
     for (const result of batchResults) {
@@ -246,9 +252,8 @@ export async function getFastestProxy(githubUrl: string): Promise<string> {
   let useDirect = false;
   try {
     const { speed, statusCode } = await testUrlConnectivity(cleanUrl, 3000);
-    const isSuccess = statusCode !== undefined &&
-                      statusCode >= 200 &&
-                      statusCode < 400;
+    const isSuccess =
+      statusCode !== undefined && statusCode >= 200 && statusCode < 400;
 
     if (isSuccess) {
       console.log(`[Proxy] Direct connection OK (${speed}ms)`);
@@ -258,7 +263,9 @@ export async function getFastestProxy(githubUrl: string): Promise<string> {
       }
     }
   } catch (e) {
-    console.log(`[Proxy] Direct connection failed: ${e instanceof Error ? e.message : 'Unknown'}`);
+    console.log(
+      `[Proxy] Direct connection failed: ${e instanceof Error ? e.message : "Unknown"}`,
+    );
   }
 
   if (useDirect) {
@@ -274,7 +281,9 @@ export async function getFastestProxy(githubUrl: string): Promise<string> {
   if (results.length > 0) {
     const bestProxy = results[0];
     const proxyUrl = `${bestProxy.proxy.url}${cleanUrl}`;
-    console.log(`[Proxy] Selected: ${bestProxy.proxy.name} (${bestProxy.speed}ms) -> ${proxyUrl}`);
+    console.log(
+      `[Proxy] Selected: ${bestProxy.proxy.name} (${bestProxy.speed}ms) -> ${proxyUrl}`,
+    );
     cacheProxy(githubUrl, proxyUrl);
     return proxyUrl;
   }

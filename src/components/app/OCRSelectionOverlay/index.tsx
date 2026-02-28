@@ -31,10 +31,10 @@ export const OCRSelectionOverlay: React.FC<OCRSelectionOverlayProps> = ({
   useEffect(() => {
     const fetchScreenshot = async () => {
       const result = await window.electron.automation.getScreenshot();
-      if (typeof result === "string") {
-        setScreenshot(result);
+      if (result && typeof result === "object" && "data" in result && result.data) {
+        setScreenshot(result.data);
       } else {
-        console.error("Failed to get screenshot:", result.error);
+        console.error("Failed to get screenshot:", result);
         onCancel();
       }
     };
