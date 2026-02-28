@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, Download, Loader2 } from "lucide-react";
+import { X, Download, FolderOpen } from "lucide-react";
 
 export const UpdateNotifier: React.FC = () => {
   const [updateInfo, setUpdateInfo] = useState<{
@@ -10,6 +10,7 @@ export const UpdateNotifier: React.FC = () => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [downloaded, setDownloaded] = useState(false);
 
   useEffect(() => {
     const checkUpdate = async () => {
@@ -101,6 +102,10 @@ export const UpdateNotifier: React.FC = () => {
       if (!result.success) {
         setError(result.error || "下载失败");
         setIsDownloading(false);
+      } else {
+        // 下载完成，文件夹已打开
+        setDownloaded(true);
+        setIsDownloading(false);
       }
     } catch (err: any) {
       setError(err.message || "更新过程中发生错误");
@@ -114,7 +119,7 @@ export const UpdateNotifier: React.FC = () => {
     <div className="fixed bottom-4 right-4 bg-zinc-800 border border-zinc-700 shadow-xl rounded-lg p-4 flex flex-col gap-3 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 w-80 text-zinc-100">
       <div className="flex justify-between items-start">
         <h3 className="font-semibold text-sm">发现新版本</h3>
-        {!isDownloading && (
+        {!isDownloading && !downloaded && (
           <button
             onClick={() => setIsVisible(false)}
             className="text-zinc-400 hover:text-white transition-colors p-1 -mr-1 -mt-1 rounded focus:outline-none"
@@ -129,13 +134,13 @@ export const UpdateNotifier: React.FC = () => {
         <span className="font-mono bg-zinc-700/50 px-1 py-0.5 rounded text-zinc-200">
           {updateInfo.version}
         </span>{" "}
-        现已发布。更新将自动下载并替换当前版本。
+        现已发布。下载完成后将打开下载目录，请手动解压并替换当前版本。
       </p>
 
       {isDownloading && (
         <div className="space-y-2">
           <div className="flex justify-between text-[11px] text-zinc-400">
-            <span>正在下载并准备更新...</span>
+            <span>正在下载...</span>
             <span>{downloadProgress}%</span>
           </div>
           <div className="h-1.5 w-full bg-zinc-700 rounded-full overflow-hidden">
@@ -147,9 +152,16 @@ export const UpdateNotifier: React.FC = () => {
         </div>
       )}
 
+      {downloaded && (
+        <div className="flex items-center gap-2 text-[13px] text-green-400 bg-green-900/20 px-3 py-2 rounded">
+          <FolderOpen size={16} />
+          <span>已打开下载目录，请手动解压替换</span>
+        </div>
+      )}
+
       {error && <p className="text-[11px] text-red-400 mt-1">{error}</p>}
 
-      {!isDownloading && (
+      {!isDownloading && !downloaded && (
         <div className="flex justify-end gap-2 mt-1">
           <button
             onClick={() => setIsVisible(false)}
@@ -161,17 +173,19 @@ export const UpdateNotifier: React.FC = () => {
             onClick={handleDownload}
             className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-orange-600 hover:bg-orange-500 text-white rounded shadow-sm transition-all hover:shadow focus:ring-2 focus:ring-orange-500/50 outline-none"
           >
-            {isDownloading ? (
-              <>
-                <Loader2 size={13} className="animate-spin" />
-                <span>更新中...</span>
-              </>
-            ) : (
-              <>
-                <Download size={13} />
-                <span>立即更新</span>
-              </>
-            )}
+            <Download size={13} />
+            <span>下载更新</span>
+          </button>
+        </div>
+      )}
+
+      {downloaded && (
+        <div className="flex justify-end mt-1">
+          <button
+            onClick={() => setIsVisible(false)}
+            className="px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-700/50 rounded transition-colors"
+          >
+            关闭
           </button>
         </div>
       )}

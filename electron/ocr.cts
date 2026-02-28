@@ -179,28 +179,39 @@ export class OcrManager {
       console.log(`Extracting OCR plugin to ${destDir}...`);
       if (onProgress) onProgress(100); // 100% means download finished, now extracting
 
-      if (!fs.existsSync(destDir)) {
-        fs.mkdirSync(destDir, { recursive: true });
+      // Clean destination directory first to remove old version files
+      if (fs.existsSync(destDir)) {
+        console.log("Cleaning old OCR plugin directory...");
+        if (typeof fs.rmSync === "function") {
+          fs.rmSync(destDir, { recursive: true, force: true });
+        } else {
+          fs.rmdirSync(destDir, { recursive: true });
+        }
       }
+      fs.mkdirSync(destDir, { recursive: true });
 
       const zip = new AdmZip(zipPath);
       const zipEntries = zip.getEntries();
 
-      // Check if all entries are inside a single root folder
-      let rootFolder = "";
-      if (zipEntries.length > 0) {
-        const firstEntry = zipEntries[0].entryName.split("/")[0];
-        const allInRoot = zipEntries.every(
-          (e) =>
-            e.entryName.startsWith(firstEntry + "/") ||
-            e.entryName === firstEntry ||
-            e.entryName === firstEntry + "/",
-        );
-        if (allInRoot) {
-          rootFolder = firstEntry;
-        }
+      if (zipEntries.length === 0) {
+        throw new Error("OCR plugin zip is empty");
       }
 
+      // Check if all entries are inside a single root folder
+      let rootFolder = "";
+      const firstEntry = zipEntries[0].entryName.split("/")[0];
+      const allInRoot = zipEntries.every(
+        (e) =>
+          e.entryName.startsWith(firstEntry + "/") ||
+          e.entryName === firstEntry ||
+          e.entryName === firstEntry + "/",
+      );
+      if (allInRoot) {
+        rootFolder = firstEntry;
+        console.log(`Detected single root folder: ${rootFolder}`);
+      }
+
+      let extractedCount = 0;
       zipEntries.forEach((entry) => {
         if (entry.isDirectory) return;
 
@@ -209,14 +220,25 @@ export class OcrManager {
           targetPath = targetPath.substring(rootFolder.length + 1);
         }
 
+        // Skip entries that would extract outside destDir
         const fullPath = path.join(destDir, targetPath);
+        const normalizedFull = path.normalize(fullPath);
+        const normalizedDest = path.normalize(destDir);
+        if (!normalizedFull.startsWith(normalizedDest)) {
+          console.warn(`Skipping potentially malicious entry: ${entry.entryName}`);
+          return;
+        }
+
         const dir = path.dirname(fullPath);
         if (!fs.existsSync(dir)) {
           fs.mkdirSync(dir, { recursive: true });
         }
 
         fs.writeFileSync(fullPath, entry.getData());
+        extractedCount++;
       });
+
+      console.log(`Extracted ${extractedCount} files to ${destDir}`);
 
       // Clean up temp zip
       if (fs.existsSync(zipPath)) {
