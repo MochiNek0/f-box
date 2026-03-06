@@ -36,6 +36,12 @@ const App: React.FC = () => {
   const { bossKey } = useSettingsStore();
 
   useEffect(() => {
+    if (window.electron?.updateBossKey) {
+      window.electron.updateBossKey(bossKey);
+    }
+  }, [bossKey]);
+
+  useEffect(() => {
     const init = async () => {
       if (window.electron && window.electron.checkFlash) {
         try {
@@ -48,11 +54,6 @@ const App: React.FC = () => {
       } else {
         console.warn("Electron bridge not found");
         setHasFlash(false);
-      }
-
-      // Initialize Boss Key in main process
-      if (window.electron && window.electron.updateBossKey) {
-        window.electron.updateBossKey(bossKey);
       }
 
       // Breakpoint Trigger Listener
@@ -96,7 +97,7 @@ const App: React.FC = () => {
             let detectedText = "";
             if (result.success && result.data && result.data.code === 100) {
               detectedText = result.data.data
-                .map((item: any) => item.text)
+                .map((item: { text?: string }) => item.text ?? "")
                 .join("");
             }
 

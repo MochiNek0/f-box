@@ -12,7 +12,12 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
   const { backToLibrary, updateZoom, tabs } = useTabStore();
   const tab = tabs.find((t) => t.id === id);
   const zoomFactor = tab?.zoomFactor || 1;
-  const webviewRef = useRef<any>(null);
+  type FlashWebviewElement = HTMLElement & {
+  setZoomFactor: (factor: number) => void;
+  openDevTools: () => void;
+};
+
+  const webviewRef = useRef<FlashWebviewElement | null>(null);
   const [pid, setPid] = useState<number | null>(null);
 
   useEffect(() => {
@@ -31,7 +36,7 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
         applyZoom();
         try {
           // Get the actual Flash plugin process PID instead of the webview PID
-          const osPid = await (window as any).electron.getFlashPid();
+          const osPid = await window.electron.getFlashPid();
           setPid(osPid);
         } catch (e) {
           console.warn("Failed to get Flash PID:", e);
@@ -123,15 +128,13 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       {/* Webview Container */}
       <div className="flex-grow flex justify-center items-start pt-10 overflow-auto bg-zinc-900">
         <div className="w-full h-full flex justify-center">
-          {/* @ts-ignore */}
+          {/* @ts-expect-error Electron webview tag */}
           <webview
             ref={webviewRef}
             src={url}
-            {...({
-              plugins: "true",
-              allowpopups: "true",
-              disablewebsecurity: "true",
-            } as any)} // Enable Flash & Popups
+            plugins="true"
+            allowpopups="true"
+            disablewebsecurity="true" // Enable Flash & Popups
             className="w-full h-full bg-black shadow-2xl"
             style={{ width: "1280px", height: "100%" }}
           />

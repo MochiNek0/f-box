@@ -45,11 +45,6 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
     setScripts(list);
   }, []);
 
-  const checkOcrStatus = useCallback(async () => {
-    const status = await window.electron.ocrGetStatus();
-    setOcrInstalled(status.installed);
-  }, []);
-
   // Setup status listener
   useEffect(() => {
     window.electron.automation.onStatus((status: string) => {
@@ -119,9 +114,25 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
 
   // Load scripts and OCR status on mount
   useEffect(() => {
-    refreshScripts();
-    checkOcrStatus();
-  }, [refreshScripts, checkOcrStatus]);
+    let mounted = true;
+
+    const loadInitialData = async () => {
+      const [list, status] = await Promise.all([
+        window.electron.automation.listScripts(),
+        window.electron.ocrGetStatus(),
+      ]);
+
+      if (!mounted) return;
+      setScripts(list);
+      setOcrInstalled(status.installed);
+    };
+
+    void loadInitialData();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Load config when a script is expanded
   useEffect(() => {
@@ -169,8 +180,8 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
 
   const handleSaveConfig = async () => {
     if (!expandedScript) return;
-    const config: any = {
-      repeatCount: repeatCount,
+    const config = {
+      repeatCount,
     };
     const result = await window.electron.automation.saveConfig(
       expandedScript,

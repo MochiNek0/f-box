@@ -1,6 +1,16 @@
 import React, { useState, useEffect } from "react";
 import { X, Download, FolderOpen } from "lucide-react";
 
+interface GithubReleaseAsset {
+  name: string;
+  browser_download_url: string;
+}
+
+interface GithubRelease {
+  tag_name?: string;
+  assets?: GithubReleaseAsset[];
+}
+
 export const UpdateNotifier: React.FC = () => {
   const [updateInfo, setUpdateInfo] = useState<{
     version: string;
@@ -32,12 +42,12 @@ export const UpdateNotifier: React.FC = () => {
 
         if (!response.ok) return;
 
-        const data = await response.json();
+        const data = (await response.json()) as GithubRelease;
         const latestVersionStr = data.tag_name || "";
 
         // Find zip asset
-        const zipAsset = data.assets?.find((a: any) =>
-          a.name.toLowerCase().endsWith(".zip"),
+        const zipAsset = data.assets?.find((asset) =>
+          asset.name.toLowerCase().endsWith(".zip"),
         );
         const downloadUrl = zipAsset?.browser_download_url;
 
@@ -107,8 +117,9 @@ export const UpdateNotifier: React.FC = () => {
         setDownloaded(true);
         setIsDownloading(false);
       }
-    } catch (err: any) {
-      setError(err.message || "更新过程中发生错误");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "更新过程中发生错误";
+      setError(message);
       setIsDownloading(false);
     }
   };
