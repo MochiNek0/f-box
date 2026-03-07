@@ -1,12 +1,32 @@
 import https from "https";
 
 /**
+ * 代理配置类型定义
+ */
+interface ProxyConfig {
+  url: string;
+  priority: number;
+  name: string;
+  /** 可选：自定义构建完整代理 URL 的方法。如果不提供，则默认直接拼接 */
+  buildUrl?: (proxyUrl: string, githubUrl: string) => string;
+}
+
+/**
  * GitHub 代理列表（按优先级排序）
  * 经过筛选的稳定代理，适用于中国大陆地区访问
  */
-const GITHUB_PROXIES = [
+const GITHUB_PROXIES: ProxyConfig[] = [
   // 高优先级 - 稳定性最好的代理
-  { url: "https://xget.xi-xu.me/gh/", priority: 1, name: "x-get" },
+  {
+    url: "https://xget.xi-xu.me/gh/",
+    priority: 1,
+    name: "x-get",
+    // x-get 需要相对路径，去除 https://github.com/ 前缀
+    buildUrl: (proxyUrl, githubUrl) => {
+      const relativePath = githubUrl.replace(/^https?:\/\/github\.com\//i, "");
+      return `${proxyUrl}${relativePath}`;
+    },
+  },
   { url: "https://ghp.ci/", priority: 2, name: "ghp.ci" },
   { url: "https://mirror.ghproxy.com/", priority: 3, name: "ghproxy" },
   { url: "https://gh-proxy.llync.com/", priority: 4, name: "gh-proxy-llync" },
@@ -19,10 +39,19 @@ const GITHUB_PROXIES = [
  * 代理测试结果
  */
 interface ProxyTestResult {
-  proxy: (typeof GITHUB_PROXIES)[0];
+  proxy: ProxyConfig;
   speed: number;
   success: boolean;
   error?: string;
+}
+
+/**
+ * 统一构建代理 URL
+ */
+function buildProxyUrl(proxy: ProxyConfig, cleanUrl: string): string {
+  return proxy.buildUrl
+    ? proxy.buildUrl(proxy.url, cleanUrl)
+    : `${proxy.url}${cleanUrl}`;
 }
 
 /**
@@ -33,7 +62,17 @@ interface ProxyTestResult {
 function normalizeGitHubUrl(url: string): string {
   let normalized = url;
 
-  // 移除已知的代理前缀
+  // 1. 处理特殊的"相对路径"代理 (如 x-get)
+  const relativeProxyPrefixes = ["https://xget.xi-xu.me/gh/"];
+  for (const prefix of relativeProxyPrefixes) {
+    if (normalized.startsWith(prefix)) {
+      // 剥离前缀后，需要把 https://github.com/ 补回来
+      normalized = `https://github.com/${normalized.slice(prefix.length)}`;
+      return normalized;
+    }
+  }
+
+  // 2. 处理常规的"绝对路径"代理
   const proxyPrefixes = [
     "https://ghp.ci/",
     "https://mirror.ghproxy.com/",
@@ -118,11 +157,12 @@ async function testUrlConnectivity(
  * @returns 测试结果
  */
 async function testProxy(
-  proxy: (typeof GITHUB_PROXIES)[0],
+  proxy: ProxyConfig,
   githubUrl: string,
   timeout: number = 8000,
 ): Promise<ProxyTestResult> {
-  const fullUrl = `${proxy.url}${githubUrl}`;
+  // 使用新的构建函数生成 URL
+  const fullUrl = buildProxyUrl(proxy, githubUrl);
 
   try {
     const { speed, statusCode } = await testUrlConnectivity(fullUrl, timeout);
@@ -188,7 +228,7 @@ function cacheProxy(githubUrl: string, proxyUrl: string): void {
  * @returns 成功的测试结果，按速度排序
  */
 async function batchTestProxies(
-  proxies: typeof GITHUB_PROXIES,
+  proxies: ProxyConfig[],
   githubUrl: string,
   concurrency: number = 3,
 ): Promise<ProxyTestResult[]> {
@@ -221,13 +261,6 @@ async function batchTestProxies(
 
 /**
  * 为 GitHub Release 下载选择最优的代理或直连
- *
- * 策略：
- * 1. 首先尝试直连（国内网络环境好时直连最快）
- * 2. 如果直连失败或超时，按优先级测试代理
- * 3. 返回第一个响应的代理
- * 4. 所有代理失败时降级到直连
- *
  * @param githubUrl 原始 GitHub 下载 URL
  * @returns 优化后的下载 URL
  */
@@ -280,7 +313,10 @@ export async function getFastestProxy(githubUrl: string): Promise<string> {
 
   if (results.length > 0) {
     const bestProxy = results[0];
-    const proxyUrl = `${bestProxy.proxy.url}${cleanUrl}`;
+
+    // 使用统一的方法生成最终的 URL
+    const proxyUrl = buildProxyUrl(bestProxy.proxy, cleanUrl);
+
     console.log(
       `[Proxy] Selected: ${bestProxy.proxy.name} (${bestProxy.speed}ms) -> ${proxyUrl}`,
     );
