@@ -15,7 +15,7 @@ export const RecorderToolbar: React.FC<RecorderToolbarProps> = ({
   const [status, setStatus] = useState("准备就绪");
 
   useEffect(() => {
-    window.electron.automation.onStatus((status: string) => {
+    const detachStatus = window.electron.automation.onStatus((status: string) => {
       if (status === "STATUS|RECORDING") {
         setIsRecording(true);
       } else if (status === "STATUS|RECORD_DONE") {
@@ -27,7 +27,7 @@ export const RecorderToolbar: React.FC<RecorderToolbarProps> = ({
     });
 
     return () => {
-      window.electron.automation.offStatus();
+      detachStatus();
     };
   }, []);
 

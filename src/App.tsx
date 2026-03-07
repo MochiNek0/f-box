@@ -321,7 +321,7 @@ const App: React.FC = () => {
       )}
 
       {showAutomationFeedback && (
-        <div className="fixed right-4 top-16 z-40 w-72 rounded-xl border border-zinc-700/80 bg-zinc-900/95 shadow-2xl backdrop-blur p-3">
+        <div className="fixed right-3 top-14 z-40 w-56 rounded-lg border border-zinc-700/80 bg-zinc-900/95 shadow-2xl backdrop-blur p-2.5">
           <div className="flex items-start justify-between gap-2">
             <div>
               <p className="text-xs font-semibold text-zinc-200">自动化执行反馈</p>
@@ -335,16 +335,16 @@ const App: React.FC = () => {
             </button>
           </div>
 
-          <div className="mt-3 space-y-2 text-xs">
-            <div className="flex items-center justify-between rounded-md bg-zinc-800/70 px-2.5 py-2">
+          <div className="mt-2 space-y-1.5 text-[11px]">
+            <div className="flex items-center justify-between rounded-md bg-zinc-800/70 px-2 py-1.5">
               <span className="text-zinc-400">执行次数</span>
               <span className="font-mono text-orange-300">{automationFeedback.runCount}</span>
             </div>
-            <div className="rounded-md bg-zinc-800/50 px-2.5 py-2">
+            <div className="rounded-md bg-zinc-800/50 px-2 py-1.5">
               <span className="text-zinc-400">状态：</span>
               <span className="text-zinc-200">{automationFeedback.lastStatus}</span>
             </div>
-            <div className="rounded-md bg-zinc-800/50 px-2.5 py-2">
+            <div className="rounded-md bg-zinc-800/50 px-2 py-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-zinc-400">OCR 结果</span>
                 {automationFeedback.ocrMatched !== null && (

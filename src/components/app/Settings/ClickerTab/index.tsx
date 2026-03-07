@@ -44,7 +44,7 @@ export const ClickerTab: React.FC = () => {
       }
     });
 
-    window.electron.automation.onStatus((status: string) => {
+    const detachStatus = window.electron.automation.onStatus((status: string) => {
       const parts = status.split("|");
       if (parts[0] === "STATUS") {
         const action = parts[1];
@@ -61,7 +61,7 @@ export const ClickerTab: React.FC = () => {
     });
 
     return () => {
-      window.electron.automation.offStatus();
+      detachStatus();
     };
   }, []);
 
