@@ -34,7 +34,7 @@ export interface AutomationAPI {
     name: string,
     events: AutomationEvent[],
   ) => Promise<{ success: boolean; error?: string }>;
-  onStatus: (callback: (status: string) => void) => void;
+  onStatus: (callback: (status: string) => void) => () => void;
   offStatus: () => void;
   onBreakpointTriggered: (
     callback: (payload: { tTrigger: number }) => void,
