@@ -7,6 +7,7 @@ import {
 import path from "path";
 import fs from "fs";
 import { spawn, ChildProcess } from "child_process";
+import { execFile } from "child_process";
 import { OcrManager } from "./ocr.cjs";
 
 export interface AutomationOcrRequest {
@@ -33,6 +34,7 @@ export class AutomationManager {
   private currentPlayingScriptPath: string | null = null;
   private scriptsDir: string;
   private scriptsConfigDir: string;
+  private macPlayStopped = false;
 
   constructor(
     getWindow: () => BrowserWindow | null,
@@ -47,6 +49,14 @@ export class AutomationManager {
   }
 
   private getAutomationRuntime(): { exe: string; args: string[] } {
+    if (process.platform === "darwin") {
+      return { exe: "", args: [] };
+    }
+
+    if (process.platform !== "win32") {
+      return { exe: "", args: [] };
+    }
+
     const exePath = app.isPackaged
       ? path.join(process.resourcesPath, "automation.exe")
       : path.join(__dirname, "..", "public", "assets", "automation.exe");
@@ -161,6 +171,17 @@ export class AutomationManager {
   }
 
   async startRecord(name: string): Promise<{ success: boolean; error?: string }> {
+    if (process.platform === "darwin") {
+      return {
+        success: false,
+        error: "macOS 录制能力建议通过 Hammerspoon / Keyboard Maestro 实现，当前内置录制仍在完善中",
+      };
+    }
+
+    if (process.platform !== "win32") {
+      return { success: false, error: "录制功能当前仅支持 Windows / macOS" };
+    }
+
     this.ensureScriptDirs();
     this.killAutomationProcess();
     const scriptPath = path.join(this.scriptsDir, `${name}.json`);
@@ -236,6 +257,31 @@ export class AutomationManager {
 
     this.killAutomationProcess();
 
+    if (process.platform === "darwin") {
+      this.currentPlayingScriptPath = scriptPath;
+      this.macPlayStopped = false;
+
+      const hsExists = await this.hasHammerspoonCli();
+      if (!hsExists) {
+        return {
+          success: false,
+          error:
+            "macOS 自动化依赖 Hammerspoon CLI（hs）。请安装 Hammerspoon 并允许辅助功能权限",
+        };
+      }
+
+      void this.playOnMac(scriptPath, repeatCount).catch((err) => {
+        console.error("macOS automation play failed:", err);
+        this.mainWindow()?.webContents.send("automation-status", "STATUS|PROCESS_EXIT");
+      });
+
+      return { success: true };
+    }
+
+    if (process.platform !== "win32") {
+      return { success: false, error: "回放功能当前仅支持 Windows / macOS" };
+    }
+
     try {
       const runtime = this.getAutomationRuntime();
       if (!fs.existsSync(runtime.exe)) {
@@ -266,8 +312,191 @@ export class AutomationManager {
   }
 
   async stopPlay(): Promise<{ success: boolean }> {
+    if (process.platform === "darwin") {
+      this.macPlayStopped = true;
+      this.mainWindow()?.webContents.send("automation-status", "STATUS|STOPPED|0");
+      return { success: true };
+    }
+
     this.killAutomationProcess();
     return { success: true };
+  }
+
+  private async hasHammerspoonCli(): Promise<boolean> {
+    const candidates = ["/opt/homebrew/bin/hs", "/usr/local/bin/hs", "hs"];
+    for (const candidate of candidates) {
+      try {
+        await this.execFileAsync(candidate, ["-c", "return true"]);
+        return true;
+      } catch {
+        // try next
+      }
+    }
+    return false;
+  }
+
+  private execFileAsync(cmd: string, args: string[]): Promise<string> {
+    return new Promise((resolve, reject) => {
+      execFile(cmd, args, (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(stderr || error.message));
+          return;
+        }
+        resolve((stdout || "").trim());
+      });
+    });
+  }
+
+  private mapMacKey(key: string): string {
+    const normalized = (key || "").trim();
+    const alias: Record<string, string> = {
+      Numpad0: "pad0",
+      Numpad1: "pad1",
+      Numpad2: "pad2",
+      Numpad3: "pad3",
+      Numpad4: "pad4",
+      Numpad5: "pad5",
+      Numpad6: "pad6",
+      Numpad7: "pad7",
+      Numpad8: "pad8",
+      Numpad9: "pad9",
+      Enter: "return",
+      Escape: "escape",
+      Space: "space",
+    };
+    return alias[normalized] ?? normalized.toLowerCase();
+  }
+
+  private buildMouseLua(evt: any): string {
+    const x = Number(evt.x || 0);
+    const y = Number(evt.y || 0);
+    const button = evt.button === "right" ? "right" : evt.button === "middle" ? "middle" : "left";
+    if (evt.type === "mousemove") {
+      return `hs.mouse.absolutePosition({x=${x}, y=${y}})`;
+    }
+    if (evt.type === "mousedown") {
+      return `hs.eventtap.event.newMouseEvent(hs.eventtap.event.types.${button}MouseDown, {x=${x}, y=${y}}):post()`;
+    }
+    if (evt.type === "mouseup") {
+      return `hs.eventtap.event.newMouseEvent(hs.eventtap.event.types.${button}MouseUp, {x=${x}, y=${y}}):post()`;
+    }
+    if (evt.type === "mousewheel") {
+      const delta = evt.button === "up" ? 1 : -1;
+      return `hs.mouse.absolutePosition({x=${x}, y=${y}}); hs.eventtap.scrollWheel({0, ${delta}}, {}, 'line')`;
+    }
+    return "";
+  }
+
+  private async runHs(luaCode: string): Promise<void> {
+    const candidates = ["/opt/homebrew/bin/hs", "/usr/local/bin/hs", "hs"];
+    let lastError = "";
+    for (const candidate of candidates) {
+      try {
+        await this.execFileAsync(candidate, ["-c", luaCode]);
+        return;
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : "unknown";
+      }
+    }
+    throw new Error(lastError || "hs command failed");
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async waitOcrResult(scriptPath: string, requestId: number): Promise<"continue" | "stop"> {
+    const continueFile = `${scriptPath}.continue_${requestId}`;
+    const stopScriptFile = `${scriptPath}.stop_script_${requestId}`;
+
+    while (!this.macPlayStopped) {
+      if (fs.existsSync(continueFile)) {
+        fs.unlinkSync(continueFile);
+        return "continue";
+      }
+      if (fs.existsSync(stopScriptFile)) {
+        fs.unlinkSync(stopScriptFile);
+        return "stop";
+      }
+      await this.sleep(100);
+    }
+
+    return "stop";
+  }
+
+  private async playOnMac(scriptPath: string, repeatCount: number): Promise<void> {
+    const events = JSON.parse(fs.readFileSync(scriptPath, "utf-8"));
+    if (!Array.isArray(events) || events.length === 0) {
+      this.mainWindow()?.webContents.send("automation-status", "STATUS|PROCESS_EXIT");
+      return;
+    }
+
+    this.mainWindow()?.webContents.send("automation-status", "STATUS|PLAYING");
+
+    let loop = 0;
+    let requestId = 0;
+
+    while (!this.macPlayStopped) {
+      loop += 1;
+      if (repeatCount > 0 && loop > repeatCount) {
+        break;
+      }
+
+      this.mainWindow()?.webContents.send("automation-status", `STATUS|LOOP_START|${loop}`);
+
+      const playStart = Date.now();
+      for (const evt of events) {
+        if (this.macPlayStopped) break;
+
+        const targetTime = Math.max(0, Number(evt?.t || 0));
+        const waitMs = playStart + targetTime - Date.now();
+        if (waitMs > 0) {
+          await this.sleep(waitMs);
+        }
+
+        if (evt?.type === "breakpoint") {
+          requestId += 1;
+          const expectedText = String(evt?.text ?? "");
+          const x = Number(evt?.x ?? 0);
+          const y = Number(evt?.y ?? 0);
+          const w = Number(evt?.w ?? 0);
+          const h = Number(evt?.h ?? 0);
+          await this.handlePlaybackOCRRequest(`REQ|OCR|${requestId}|0|${x}|${y}|${w}|${h}|${expectedText}`);
+          const decision = await this.waitOcrResult(scriptPath, requestId);
+          if (decision === "stop") {
+            this.macPlayStopped = true;
+            break;
+          }
+          continue;
+        }
+
+        if (["mousemove", "mousedown", "mouseup", "mousewheel"].includes(evt?.type)) {
+          const lua = this.buildMouseLua(evt);
+          if (lua) {
+            await this.runHs(lua);
+          }
+          continue;
+        }
+
+        if (evt?.type === "keydown" || evt?.type === "keyup") {
+          const key = this.mapMacKey(String(evt?.key ?? ""));
+          const isDown = evt.type === "keydown";
+          await this.runHs(
+            `hs.eventtap.event.newKeyEvent({}, ${JSON.stringify(key)}, ${isDown ? "true" : "false"}):post()`,
+          );
+        }
+      }
+
+      if (this.macPlayStopped) {
+        break;
+      }
+
+      this.mainWindow()?.webContents.send("automation-status", `STATUS|LOOP_END|${loop}`);
+      await this.sleep(500);
+    }
+
+    this.mainWindow()?.webContents.send("automation-status", `STATUS|STOPPED|${Math.max(loop - (this.macPlayStopped ? 0 : 1), 0)}`);
+    this.mainWindow()?.webContents.send("automation-status", "STATUS|PROCESS_EXIT");
   }
 
   async listScripts(): Promise<string[]> {

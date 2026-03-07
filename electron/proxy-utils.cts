@@ -44,6 +44,7 @@ function normalizeGitHubUrl(url: string): string {
     "https://gh-proxy.org/",
     "https://cdn.gh-proxy.org/",
     "https://edgeone.gh-proxy.org/",
+    "https://xget.xi-xu.me/gh/",
   ];
 
   for (const prefix of proxyPrefixes) {
@@ -54,6 +55,26 @@ function normalizeGitHubUrl(url: string): string {
   }
 
   return normalized;
+}
+
+function ensureAbsoluteGitHubUrl(url: string): string {
+  if (/^https?:\/\//i.test(url)) {
+    return url;
+  }
+  return `https://${url.replace(/^\/+/, "")}`;
+}
+
+function buildProxyUrl(proxyBase: string, githubUrl: string): string {
+  const normalizedBase = proxyBase.endsWith("/") ? proxyBase : `${proxyBase}/`;
+  const cleanGithubUrl = ensureAbsoluteGitHubUrl(normalizeGitHubUrl(githubUrl));
+
+  // x-get 需要去掉 `https://github.com/` 前缀，仅拼接仓库路径
+  if (normalizedBase.includes("xget.xi-xu.me/gh/")) {
+    const withoutHost = cleanGithubUrl.replace(/^https?:\/\/github\.com\//i, "");
+    return `${normalizedBase}${withoutHost}`;
+  }
+
+  return `${normalizedBase}${cleanGithubUrl}`;
 }
 
 /**
@@ -122,7 +143,7 @@ async function testProxy(
   githubUrl: string,
   timeout: number = 8000,
 ): Promise<ProxyTestResult> {
-  const fullUrl = `${proxy.url}${githubUrl}`;
+  const fullUrl = buildProxyUrl(proxy.url, githubUrl);
 
   try {
     const { speed, statusCode } = await testUrlConnectivity(fullUrl, timeout);
@@ -280,7 +301,7 @@ export async function getFastestProxy(githubUrl: string): Promise<string> {
 
   if (results.length > 0) {
     const bestProxy = results[0];
-    const proxyUrl = `${bestProxy.proxy.url}${cleanUrl}`;
+    const proxyUrl = buildProxyUrl(bestProxy.proxy.url, cleanUrl);
     console.log(
       `[Proxy] Selected: ${bestProxy.proxy.name} (${bestProxy.speed}ms) -> ${proxyUrl}`,
     );
