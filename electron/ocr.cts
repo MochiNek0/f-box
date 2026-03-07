@@ -1,4 +1,4 @@
-import { spawn, ChildProcess } from "child_process";
+import { spawn, ChildProcess, execFile } from "child_process";
 import path from "path";
 import fs from "fs";
 import { app } from "electron";
@@ -19,21 +19,157 @@ export class OcrManager {
   private queue: OcrRequest[] = [];
   private isProcessing = false;
   private buffer = ""; // Buffer for stdout
+
+  private isWindows(): boolean {
+    return process.platform === "win32";
+  }
+
+  private isMac(): boolean {
+    return process.platform === "darwin";
+  }
+
   private getPluginPath(): string {
     return path.join(os.homedir(), ".f-box", "plugins", "ocr");
   }
 
-  public isInstalled(): boolean {
+  private getWindowsPluginUrl(): string {
+    return "https://github.com/MochiNek0/f-box/releases/download/ocr-plugin/ocr.zip";
+  }
+
+  private getMacPluginUrl(): string {
+    return "https://github.com/MochiNek0/f-box/releases/download/ocr-plugin/ocr-mac.zip";
+  }
+
+  private getMacPluginCandidates(): string[] {
     const pluginPath = this.getPluginPath();
-    const exePath = path.join(pluginPath, "PaddleOCR-json.exe");
-    return fs.existsSync(exePath);
+    return [
+      path.join(pluginPath, "macocr"),
+      path.join(pluginPath, "bin", "macocr"),
+      path.join(pluginPath, "macOCR"),
+      path.join(pluginPath, "macOCR", "macocr"),
+    ];
+  }
+
+  private getMacOcrCandidates(): string[] {
+    return [
+      ...this.getMacPluginCandidates(),
+      "/opt/homebrew/bin/macocr",
+      "/usr/local/bin/macocr",
+      "macocr",
+    ];
+  }
+
+  private getMacPluginExecutablePath(): string {
+    for (const candidate of this.getMacPluginCandidates()) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+    return "";
+  }
+
+  private getMacExecutablePath(): string {
+    const pluginExecutable = this.getMacPluginExecutablePath();
+    if (pluginExecutable) {
+      return pluginExecutable;
+    }
+
+    for (const candidate of this.getMacOcrCandidates()) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+
+    return "macocr";
+  }
+
+  public isInstalled(): boolean {
+    if (this.isWindows()) {
+      const pluginPath = this.getPluginPath();
+      const exePath = path.join(pluginPath, "PaddleOCR-json.exe");
+      return fs.existsSync(exePath);
+    }
+
+    if (this.isMac()) {
+      return this.getMacPluginExecutablePath().length > 0;
+    }
+
+    return false;
   }
 
   private getExecutablePath(): string {
+    if (!this.isWindows()) {
+      return "";
+    }
     const pluginPath = this.getPluginPath();
     const exePath = path.join(pluginPath, "PaddleOCR-json.exe");
     if (fs.existsSync(exePath)) return exePath;
     return "";
+  }
+
+  private execFileAsync(cmd: string, args: string[]): Promise<string> {
+    return new Promise((resolve, reject) => {
+      execFile(cmd, args, (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(stderr || error.message));
+          return;
+        }
+        resolve((stdout || "").trim());
+      });
+    });
+  }
+
+  private async runMacOcr(imagePath: string): Promise<any> {
+    const executable = this.getMacExecutablePath();
+    if (!executable) {
+      throw new Error("未检测到 macOCR，请先安装 macOCR（brew install --cask macocr）");
+    }
+
+    const argVariants = [[imagePath], ["--path", imagePath], ["--file", imagePath]];
+    let output = "";
+    let lastError = "";
+
+    for (const args of argVariants) {
+      try {
+        output = await this.execFileAsync(executable, args);
+        if (output) break;
+      } catch (e) {
+        lastError = e instanceof Error ? e.message : "Unknown error";
+      }
+    }
+
+    if (!output) {
+      throw new Error(lastError || "macOCR 未返回可用识别结果");
+    }
+
+    const lines = output
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    return {
+      code: 100,
+      data: lines.map((text) => ({ text })),
+      raw: output,
+    };
+  }
+
+  private async recognizeMac(base64Image: string): Promise<any> {
+    let cleanBase64 = base64Image;
+    if (cleanBase64.startsWith("data:image")) {
+      cleanBase64 = cleanBase64.split(",")[1];
+    }
+
+    const tempPath = path.join(app.getPath("temp"), `macocr_${Date.now()}.png`);
+    fs.writeFileSync(tempPath, Buffer.from(cleanBase64, "base64"));
+
+    try {
+      return await this.runMacOcr(tempPath);
+    } finally {
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath);
+      }
+    }
   }
 
   private startProcess() {
@@ -109,6 +245,10 @@ export class OcrManager {
   }
 
   public async recognize(base64Image: string): Promise<any> {
+    if (this.isMac()) {
+      return this.recognizeMac(base64Image);
+    }
+
     return new Promise((resolve, reject) => {
       this.queue.push({ resolve, reject, image: base64Image });
       this.processQueue();
@@ -116,6 +256,12 @@ export class OcrManager {
   }
 
   private processQueue() {
+    if (!this.isWindows()) {
+      const req = this.queue.shift();
+      req?.reject(new Error("当前系统不支持 PaddleOCR-json 队列模式"));
+      return;
+    }
+
     if (this.isProcessing || this.queue.length === 0) return;
     if (!this.process) {
       this.startProcess();
@@ -151,8 +297,23 @@ export class OcrManager {
   public async install(
     onProgress?: (percent: number) => void,
   ): Promise<boolean> {
-    const rawUrl =
-      "https://github.com/MochiNek0/f-box/releases/download/ocr-plugin/ocr.zip";
+    if (this.isMac()) {
+      return this.installFromZip(this.getMacPluginUrl(), onProgress, true);
+    }
+
+    if (!this.isWindows()) {
+      console.warn(`OCR install is not supported on platform: ${process.platform}`);
+      return false;
+    }
+
+    return this.installFromZip(this.getWindowsPluginUrl(), onProgress, false);
+  }
+
+  private async installFromZip(
+    rawUrl: string,
+    onProgress?: (percent: number) => void,
+    makeExecutable: boolean = false,
+  ): Promise<boolean> {
     const downloadUrl = await getFastestProxy(rawUrl);
     const tempDir = app.getPath("temp");
     const zipPath = path.join(tempDir, `ocr_${Date.now()}.zip`);
@@ -245,6 +406,18 @@ export class OcrManager {
         fs.unlinkSync(zipPath);
       }
 
+      if (makeExecutable) {
+        for (const file of this.getMacPluginCandidates()) {
+          if (fs.existsSync(file)) {
+            try {
+              fs.chmodSync(file, 0o755);
+            } catch (chmodErr) {
+              console.warn(`Failed to chmod ${file}:`, chmodErr);
+            }
+          }
+        }
+      }
+
       console.log("OCR plugin installation complete.");
       return true;
     } catch (e) {
@@ -305,6 +478,7 @@ export class OcrManager {
 
   public async uninstall(): Promise<boolean> {
     this.kill();
+
     const dest = this.getPluginPath();
     try {
       if (fs.existsSync(dest)) {
