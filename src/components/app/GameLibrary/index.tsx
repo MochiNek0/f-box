@@ -136,16 +136,15 @@ export const GameLibrary: React.FC = () => {
                   {new URL(game.url).hostname}
                 </p>
               </div>
-            </div>
-
-            <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-              {game.id.startsWith("custom-") && (
-                <IconButton
-                  icon={<Trash2 size={16} />}
-                  onClick={(e) => removeGame(e, game.id)}
-                  variant="danger"
-                />
-              )}
+              <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                {game.id.startsWith("custom-") && (
+                  <IconButton
+                    icon={<Trash2 size={16} />}
+                    onClick={(e) => removeGame(e, game.id)}
+                    variant="danger"
+                  />
+                )}
+              </div>
             </div>
 
             {/* Glossy overlay effect */}

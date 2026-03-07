@@ -8,7 +8,6 @@ SetKeyDelay(-1, -1)
 SetControlDelay(-1)
 SetMouseDelay(-1)
 SetWinDelay(0)
-SetBatchLines(-1)
 ProcessSetPriority("High")
 
 global POLL_INTERVAL_MS := 4
