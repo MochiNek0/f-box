@@ -145,7 +145,6 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       {/* Webview Container */}
       <div className="flex-grow flex justify-center items-start pt-10 overflow-auto bg-zinc-900">
         <div className="w-full h-full flex justify-center">
-          {/* @ts-expect-error Electron webview tag */}
           <webview
             ref={webviewRef}
             src={url}
