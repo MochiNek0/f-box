@@ -8,14 +8,22 @@ interface GameViewProps {
   url: string;
 }
 
+type FlashWebviewElement = HTMLElement & {
+  setZoomFactor: (factor: number) => void;
+  openDevTools: () => void;
+};
+
+const WEBVIEW_FLASH_PROPS: Record<string, string> = {
+  plugins: "true",
+  allowpopups: "true",
+  disablewebsecurity: "true",
+  webpreferences: "plugins=yes",
+};
+
 export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
   const { backToLibrary, updateZoom, tabs } = useTabStore();
   const tab = tabs.find((t) => t.id === id);
   const zoomFactor = tab?.zoomFactor || 1;
-  type FlashWebviewElement = HTMLElement & {
-  setZoomFactor: (factor: number) => void;
-  openDevTools: () => void;
-};
 
   const webviewRef = useRef<FlashWebviewElement | null>(null);
   const [pid, setPid] = useState<number | null>(null);
@@ -132,9 +140,7 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
           <webview
             ref={webviewRef}
             src={url}
-            plugins="true"
-            allowpopups="true"
-            disablewebsecurity="true" // Enable Flash & Popups
+            {...WEBVIEW_FLASH_PROPS} // Enable Flash & Popups
             className="w-full h-full bg-black shadow-2xl"
             style={{ width: "1280px", height: "100%" }}
           />
