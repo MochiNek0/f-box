@@ -33,10 +33,10 @@ export async function preprocessImage(
       const dpr = window.devicePixelRatio || 1;
 
       // Calculate scaled dimensions
-      const sw = region.w * dpr;
-      const sh = region.h * dpr;
-      const dw = sw * options.scale;
-      const dh = sh * options.scale;
+      const sw = Math.max(1, Math.floor(region.w * dpr));
+      const sh = Math.max(1, Math.floor(region.h * dpr));
+      const dw = Math.max(1, Math.floor(sw * options.scale));
+      const dh = Math.max(1, Math.floor(sh * options.scale));
 
       const canvas = document.createElement("canvas");
       canvas.width = dw;
@@ -52,41 +52,47 @@ export async function preprocessImage(
       ctx.imageSmoothingEnabled = false; // Keep it sharp
       ctx.drawImage(img, region.x * dpr, region.y * dpr, sw, sh, 0, 0, dw, dh);
 
-      // 2. Filter processing
-      const imageData = ctx.getImageData(0, 0, dw, dh);
-      const data = imageData.data;
+      // 2. Filter processing (skip expensive pixel loop when no filter is enabled)
+      const needsPixelProcessing =
+        options.grayscale || options.invert || options.threshold > 0;
 
-      for (let i = 0; i < data.length; i += 4) {
-        let r = data[i];
-        let g = data[i + 1];
-        let b = data[i + 2];
+      if (needsPixelProcessing) {
+        const imageData = ctx.getImageData(0, 0, dw, dh);
+        const data = imageData.data;
 
-        // Grayscale (Luminance)
-        if (options.grayscale) {
-          const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-          r = g = b = gray;
+        for (let i = 0; i < data.length; i += 4) {
+          let r = data[i];
+          let g = data[i + 1];
+          let b = data[i + 2];
+
+          // Grayscale (Luminance)
+          if (options.grayscale) {
+            const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+            r = g = b = gray;
+          }
+
+          // Invert
+          if (options.invert) {
+            r = 255 - r;
+            g = 255 - g;
+            b = 255 - b;
+          }
+
+          // Binarization (Threshold)
+          if (options.threshold > 0) {
+            const v = (r + g + b) / 3 >= options.threshold ? 255 : 0;
+            r = g = b = v;
+          }
+
+          data[i] = r;
+          data[i + 1] = g;
+          data[i + 2] = b;
+          // alpha remains same
         }
 
-        // Invert
-        if (options.invert) {
-          r = 255 - r;
-          g = 255 - g;
-          b = 255 - b;
-        }
-
-        // Binarization (Threshold)
-        if (options.threshold > 0) {
-          const v = (r + g + b) / 3 >= options.threshold ? 255 : 0;
-          r = g = b = v;
-        }
-
-        data[i] = r;
-        data[i + 1] = g;
-        data[i + 2] = b;
-        // alpha remains same
+        ctx.putImageData(imageData, 0, 0);
       }
 
-      ctx.putImageData(imageData, 0, 0);
       resolve(canvas.toDataURL("image/png"));
     };
     img.onerror = reject;
