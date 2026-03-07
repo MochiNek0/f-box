@@ -11,6 +11,15 @@ import { UpdateNotifier } from "./components/app/UpdateNotifier";
 import { useTabStore } from "./store/useTabStore";
 import { useSettingsStore } from "./store/useSettingsStore";
 import { preprocessImage } from "./utils/imageProcess";
+import { IconButton } from "./components/common/IconButton";
+import { X } from "lucide-react";
+
+type AutomationFeedback = {
+  runCount: number;
+  lastStatus: string;
+  lastOcrText: string;
+  ocrMatched: boolean | null;
+};
 
 const App: React.FC = () => {
   const [hasFlash, setHasFlash] = useState<boolean | null>(null);
@@ -20,6 +29,14 @@ const App: React.FC = () => {
   const [initialRecordName, setInitialRecordName] = useState("");
   // Store t_trigger (F9 press time) from BREAKPOINT_REQ to pass back on resume
   const pendingTTrigger = useRef<number>(0);
+  const [showAutomationFeedback, setShowAutomationFeedback] = useState(false);
+  const [automationFeedback, setAutomationFeedback] =
+    useState<AutomationFeedback>({
+      runCount: 0,
+      lastStatus: "等待自动化任务开始",
+      lastOcrText: "",
+      ocrMatched: null,
+    });
 
   const handleOpenRecorder = (name: string) => {
     setInitialRecordName(name);
@@ -42,6 +59,8 @@ const App: React.FC = () => {
   }, [bossKey]);
 
   useEffect(() => {
+    let detachStatus: (() => void) | undefined;
+
     const init = async () => {
       if (window.electron && window.electron.checkFlash) {
         try {
@@ -55,6 +74,80 @@ const App: React.FC = () => {
         console.warn("Electron bridge not found");
         setHasFlash(false);
       }
+
+      // Automation status listener for persistent run feedback
+      detachStatus = window.electron.automation?.onStatus?.((status) => {
+        const parts = status.split("|");
+        if (parts[0] !== "STATUS") {
+          return;
+        }
+
+        const action = parts[1];
+        if (action === "PLAYING") {
+          setShowAutomationFeedback(true);
+        }
+
+        if (action === "LOOP_START") {
+          const currentRound = parseInt(parts[2] || "0", 10);
+          setAutomationFeedback((prev) => ({
+            ...prev,
+            runCount: Number.isNaN(currentRound) ? prev.runCount : currentRound,
+            lastStatus: `第 ${parts[2] ?? "0"} 次执行中`,
+          }));
+          return;
+        }
+
+        if (action === "CONDITION_MET") {
+          setAutomationFeedback((prev) => ({
+            ...prev,
+            lastStatus: `停止条件满足，共执行 ${parts[2] ?? prev.runCount} 次`,
+          }));
+          return;
+        }
+
+        if (action === "STOPPED") {
+          setAutomationFeedback((prev) => ({
+            ...prev,
+            lastStatus: `已停止，共执行 ${parts[2] ?? prev.runCount} 次`,
+          }));
+          return;
+        }
+
+        if (action === "OCR_RESULT") {
+          const matched = parts[3] === "1";
+          let decodedText = "";
+          try {
+            decodedText = decodeURIComponent(parts.slice(4).join("|") || "");
+          } catch {
+            decodedText = parts.slice(4).join("|");
+          }
+          setAutomationFeedback((prev) => ({
+            ...prev,
+            lastOcrText: decodedText || "（未识别到文本）",
+            ocrMatched: matched,
+            lastStatus: matched
+              ? "OCR 识别成功，触发停止"
+              : "OCR 未匹配，继续执行",
+          }));
+          return;
+        }
+
+        if (action === "OCR_NOT_INSTALLED") {
+          setAutomationFeedback((prev) => ({
+            ...prev,
+            ocrMatched: false,
+            lastStatus: "未安装 OCR 扩展，断点识别不可用",
+          }));
+          return;
+        }
+
+        if (action === "PLAYING") {
+          setAutomationFeedback((prev) => ({
+            ...prev,
+            lastStatus: "自动化执行中",
+          }));
+        }
+      });
 
       // Breakpoint Trigger Listener
       if (
@@ -96,8 +189,8 @@ const App: React.FC = () => {
 
             let detectedText = "";
             if (result.success && result.data && result.data.code === 100) {
-              detectedText = result.data.data
-                .map((item: { text?: string }) => item.text ?? "")
+              detectedText = result.data
+                .data!.map((item: { text?: string }) => item.text ?? "")
                 .join("");
             }
 
@@ -139,6 +232,9 @@ const App: React.FC = () => {
     };
     init();
     return () => {
+      if (typeof detachStatus === "function") {
+        detachStatus();
+      }
       if (
         window.electron.automation &&
         window.electron.automation.offBreakpointTriggered
@@ -230,6 +326,50 @@ const App: React.FC = () => {
             setShowOCRSelection(false);
           }}
         />
+      )}
+
+      {showAutomationFeedback && (
+        <div className="fixed right-3 top-14 z-40 w-40 rounded-lg border border-zinc-700/80 bg-zinc-900/95 shadow-2xl backdrop-blur p-2.5 flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-4">
+              <p className="text-xs font-semibold text-zinc-200">执行信息</p>
+              {automationFeedback.ocrMatched !== null && (
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    automationFeedback.ocrMatched
+                      ? "bg-emerald-400"
+                      : "bg-red-400"
+                  }`}
+                ></span>
+              )}
+            </div>
+            <IconButton
+              icon={<X size={16} />}
+              onClick={() => setShowAutomationFeedback(false)}
+            />
+          </div>
+
+          <div className="space-y-2 text-[8px]">
+            <div className="flex items-center justify-between rounded-md bg-zinc-800/70 px-2 py-1.5 text-[12px]">
+              <span className="text-zinc-400">执行次数</span>
+              <span className="font-mono text-orange-300">
+                {automationFeedback.runCount}
+              </span>
+            </div>
+            <div className="rounded-md bg-zinc-800/50 px-2 py-1.5">
+              <span className="text-zinc-400">状态：</span>
+              <span className="text-zinc-200">
+                {automationFeedback.lastStatus}
+              </span>
+            </div>
+            <div className="rounded-md bg-zinc-800/50 px-2 py-1.5">
+              <span className="text-zinc-400">OCR 结果：</span>
+              <span className="text-zinc-200">
+                {automationFeedback.lastOcrText || "暂无"}
+              </span>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Update Notifier Overlay */}

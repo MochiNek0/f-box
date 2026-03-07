@@ -47,7 +47,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
 
   // Setup status listener
   useEffect(() => {
-    window.electron.automation.onStatus((status: string) => {
+    const detachStatus = window.electron.automation.onStatus((status: string) => {
       const parts = status.split("|");
       if (parts[0] === "STATUS") {
         const action = parts[1];
@@ -107,7 +107,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
     });
 
     return () => {
-      window.electron.automation.offStatus();
+      detachStatus();
       window.electron.offOcrInstallProgress();
     };
   }, [isRecording, isPlaying, refreshScripts]);

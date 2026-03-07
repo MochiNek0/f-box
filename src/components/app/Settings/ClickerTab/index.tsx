@@ -23,8 +23,16 @@ interface AutomationKeyEvent {
   key: string;
 }
 
+const createStepId = (): string => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `step-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+};
+
 const createStep = (): ClickerStep => ({
-  id: crypto.randomUUID(),
+  id: createStepId(),
   key: "S",
   intervalMs: 100,
 });
@@ -44,7 +52,7 @@ export const ClickerTab: React.FC = () => {
       }
     });
 
-    window.electron.automation.onStatus((status: string) => {
+    const detachStatus = window.electron.automation.onStatus((status: string) => {
       const parts = status.split("|");
       if (parts[0] === "STATUS") {
         const action = parts[1];
@@ -61,12 +69,12 @@ export const ClickerTab: React.FC = () => {
     });
 
     return () => {
-      window.electron.automation.offStatus();
+      detachStatus();
     };
   }, []);
 
   const handleAddStep = () => {
-    setSteps([...steps, createStep()]);
+    setSteps((prev) => [...prev, createStep()]);
   };
 
   const handleRemoveStep = (id: string) => {

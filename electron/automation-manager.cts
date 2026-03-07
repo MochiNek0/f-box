@@ -33,6 +33,7 @@ export class AutomationManager {
   private currentPlayingScriptPath: string | null = null;
   private scriptsDir: string;
   private scriptsConfigDir: string;
+  private stdoutBuffer = "";
 
   constructor(
     getWindow: () => BrowserWindow | null,
@@ -113,20 +114,30 @@ export class AutomationManager {
           "",
         );
       }
+      this.mainWindow()?.webContents.send(
+        "automation-status",
+        `STATUS|OCR_RESULT|${requestId}|0|OCR_REQUEST_FAILED`,
+      );
     }
   }
 
   private setupProcessHandlers(): void {
     if (!this.automationProcess) return;
 
-    this.automationProcess.stdout?.on("data", (data: Buffer) => {
-      const rawOutput = data.toString();
+    this.stdoutBuffer = "";
 
-      const lines = rawOutput
-        .split("\n")
-        .filter((l: string) => l.trim());
+    this.automationProcess.stdout?.on("data", (data: Buffer) => {
+      this.stdoutBuffer += data.toString();
+
+      const lines = this.stdoutBuffer.split(/\r?\n/);
+      this.stdoutBuffer = lines.pop() ?? "";
+
       for (const line of lines) {
         const trimmed = line.trim();
+        if (!trimmed) {
+          continue;
+        }
+
         if (trimmed.startsWith("SIGNAL|BREAKPOINT_REQ")) {
           // Check if OCR is installed
           if (this.ocrManager && this.ocrManager.isInstalled()) {
@@ -156,6 +167,7 @@ export class AutomationManager {
 
     this.automationProcess.on("exit", () => {
       this.automationProcess = null;
+      this.stdoutBuffer = "";
       this.mainWindow()?.webContents.send("automation-status", "STATUS|PROCESS_EXIT");
     });
   }
@@ -430,6 +442,11 @@ export class AutomationManager {
     console.log(
       `OCR Result [id=${data.requestId}] from Renderer: "${data.text}", matched: ${data.matched}`,
     );
+    this.mainWindow()?.webContents.send(
+      "automation-status",
+      `STATUS|OCR_RESULT|${data.requestId}|${data.matched ? "1" : "0"}|${encodeURIComponent(data.text ?? "")}`,
+    );
+
     if (this.currentPlayingScriptPath) {
       if (data.matched) {
         console.log(

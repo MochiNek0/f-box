@@ -57,7 +57,13 @@ contextBridge.exposeInMainWorld("electron", {
     saveScript: (name: string, events: any[]) =>
       ipcRenderer.invoke("automation-save-script", name, events),
     onStatus: (callback: (status: string) => void) => {
-      ipcRenderer.on("automation-status", (_event, status) => callback(status));
+      const listener = (_event: Electron.IpcRendererEvent, status: string) => {
+        callback(status);
+      };
+      ipcRenderer.on("automation-status", listener);
+      return () => {
+        ipcRenderer.removeListener("automation-status", listener);
+      };
     },
     offStatus: () => {
       ipcRenderer.removeAllListeners("automation-status");
