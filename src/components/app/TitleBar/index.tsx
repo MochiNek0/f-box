@@ -14,6 +14,12 @@ interface TitleBarProps {
 }
 
 export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
+  const dragStyle: React.CSSProperties & { WebkitAppRegion: "drag" } = {
+    WebkitAppRegion: "drag",
+  };
+  const noDragStyle: React.CSSProperties & { WebkitAppRegion: "no-drag" } = {
+    WebkitAppRegion: "no-drag",
+  };
   const [opacity, setOpacity] = useState(1);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -30,7 +36,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
   return (
     <div
       className="h-10 bg-zinc-900 flex items-center justify-between select-none relative px-2"
-      style={{ WebkitAppRegion: "drag" } as any}
+      style={dragStyle}
     >
       <div className="flex items-center gap-2">
         <div className="w-5 h-5 bg-orange-500 rounded flex items-center justify-center flex-shrink-0">
@@ -43,7 +49,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
 
       <div
         className="flex items-center h-full no-drag"
-        style={{ WebkitAppRegion: "no-drag" } as any}
+        style={noDragStyle}
       >
         {/* Opacity Slider */}
         <div className="flex items-center gap-2 px-3 border-r border-zinc-800">

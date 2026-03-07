@@ -17,10 +17,20 @@ export interface ClickerStep {
   intervalMs: number;
 }
 
+interface AutomationKeyEvent {
+  t: number;
+  type: "keydown" | "keyup";
+  key: string;
+}
+
+const createStep = (): ClickerStep => ({
+  id: crypto.randomUUID(),
+  key: "S",
+  intervalMs: 100,
+});
+
 export const ClickerTab: React.FC = () => {
-  const [steps, setSteps] = useState<ClickerStep[]>([
-    { id: Date.now().toString(), key: "S", intervalMs: 100 },
-  ]);
+  const [steps, setSteps] = useState<ClickerStep[]>([{ id: "step-1", key: "S", intervalMs: 100 }]);
   const [loopCount, setLoopCount] = useState<number>(0); // 0 = infinite
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string>("");
@@ -56,10 +66,7 @@ export const ClickerTab: React.FC = () => {
   }, []);
 
   const handleAddStep = () => {
-    setSteps([
-      ...steps,
-      { id: Date.now().toString(), key: "S", intervalMs: 100 },
-    ]);
+    setSteps([...steps, createStep()]);
   };
 
   const handleRemoveStep = (id: string) => {
@@ -68,8 +75,8 @@ export const ClickerTab: React.FC = () => {
 
   const handleUpdateStep = (
     id: string,
-    field: keyof ClickerStep,
-    value: any,
+    field: "key" | "intervalMs",
+    value: string | number,
   ) => {
     setSteps(
       steps.map((s) => {
@@ -102,7 +109,7 @@ export const ClickerTab: React.FC = () => {
   const handleSaveConfig = async () => {
     setStatusMessage("正在保存配置...");
     let currentT = 0;
-    const events: any[] = [];
+    const events: AutomationKeyEvent[] = [];
     for (const step of steps) {
       const upperKey = step.key.toUpperCase();
       currentT += step.intervalMs;
@@ -132,7 +139,7 @@ export const ClickerTab: React.FC = () => {
 
     // Generate events Array for AHK Automation Script
     let currentT = 0;
-    const events: any[] = [];
+    const events: AutomationKeyEvent[] = [];
 
     for (const step of steps) {
       const upperKey = step.key.toUpperCase();

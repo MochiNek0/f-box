@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useTabStore } from "../../../store/useTabStore";
 import { Plus, Trash2, ExternalLink, ShieldCheck } from "lucide-react";
 import { Modal } from "../../common/Modal";
@@ -42,17 +42,20 @@ const DEFAULT_GAMES: GameItem[] = [
 
 export const GameLibrary: React.FC = () => {
   const { activeTabId, loadGame } = useTabStore();
-  const [customGames, setCustomGames] = useState<GameItem[]>([]);
+  const [customGames, setCustomGames] = useState<GameItem[]>(() => {
+    const saved = localStorage.getItem("custom_games");
+    if (!saved) return [];
+
+    try {
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? (parsed as GameItem[]) : [];
+    } catch {
+      return [];
+    }
+  });
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState("");
   const [newUrl, setNewUrl] = useState("");
-
-  useEffect(() => {
-    const saved = localStorage.getItem("custom_games");
-    if (saved) {
-      setCustomGames(JSON.parse(saved));
-    }
-  }, []);
 
   const saveCustomGames = (games: GameItem[]) => {
     setCustomGames(games);

@@ -1,3 +1,18 @@
+export interface AutomationEvent {
+  t: number;
+  type: "keydown" | "keyup";
+  key: string;
+}
+
+export interface OCRResultItem {
+  text?: string;
+}
+
+export interface OCRResponseData {
+  code: number;
+  data?: OCRResultItem[];
+}
+
 export interface AutomationConfig {
   repeatCount?: number;
   steps?: Array<{ id: string; key: string; intervalMs: number }>;
@@ -17,7 +32,7 @@ export interface AutomationAPI {
   getConfig: (name: string) => Promise<AutomationConfig | null>;
   saveScript: (
     name: string,
-    events: any[],
+    events: AutomationEvent[],
   ) => Promise<{ success: boolean; error?: string }>;
   onStatus: (callback: (status: string) => void) => void;
   offStatus: () => void;
@@ -57,6 +72,7 @@ export interface IElectronAPI {
   updateBossKey: (key: string) => void;
   openExternal: (url: string) => void;
   getAppVersion: () => Promise<string>;
+  getFlashPid: () => Promise<number>;
   getKeymapConfig: () => Promise<{
     enabled: boolean;
     mappings: Array<{ source: string; target: string }>;
@@ -71,7 +87,7 @@ export interface IElectronAPI {
   resumeKeymap: () => void;
   ocr: (
     imageBase64: string,
-  ) => Promise<{ success: boolean; data?: any; error?: string }>;
+  ) => Promise<{ success: boolean; data?: OCRResponseData; error?: string }>;
   ocrGetStatus: () => Promise<{ installed: boolean }>;
   ocrInstall: () => Promise<{ success: boolean }>;
   ocrUninstall: () => Promise<{ success: boolean }>;

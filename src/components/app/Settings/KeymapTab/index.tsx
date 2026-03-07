@@ -201,7 +201,7 @@ export const KeymapTab: React.FC = () => {
           // Axis 0 (LX) & 2 (RX): -1 is Left, +1 is Right.
 
           let direction = "";
-          let axisName = axisNames[i];
+          const axisName = axisNames[i];
 
           // Reverse Y axis logic because AHK script expects:
           // LY+ -> Physical Up (AHK) vs Web Standard Down (+)
