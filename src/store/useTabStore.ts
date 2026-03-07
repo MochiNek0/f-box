@@ -36,9 +36,19 @@ export const useTabStore = create<TabState>((set) => ({
   addTab: () => {
     const newId = `tab-${Date.now()}`;
     set((state) => ({
+      // Inherit current active tab zoom so opening a new tab does not visually jump.
+      // Fallback to 1 when active tab is unexpectedly missing.
+      // This keeps zoom behavior consistent with most browsers.
       tabs: [
         ...state.tabs,
-        { id: newId, title: "游戏库", url: "", isLibrary: true, zoomFactor: 1 },
+        {
+          id: newId,
+          title: "游戏库",
+          url: "",
+          isLibrary: true,
+          zoomFactor:
+            state.tabs.find((t) => t.id === state.activeTabId)?.zoomFactor || 1,
+        },
       ],
       activeTabId: newId,
     }));

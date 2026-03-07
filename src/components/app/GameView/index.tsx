@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useCallback } from "react";
 import { useTabStore } from "../../../store/useTabStore";
 import { ZoomIn, ZoomOut, RefreshCw, ArrowLeft, Maximize2 } from "lucide-react";
 import { IconButton } from "../../common/IconButton";
@@ -26,54 +26,63 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
   const zoomFactor = tab?.zoomFactor || 1;
 
   const webviewRef = useRef<FlashWebviewElement | null>(null);
+  const latestZoomRef = useRef(zoomFactor);
   const [pid, setPid] = useState<number | null>(null);
 
-  useEffect(() => {
-    if (webviewRef.current) {
-      const webview = webviewRef.current;
-
-      const applyZoom = () => {
-        try {
-          webview.setZoomFactor(zoomFactor);
-        } catch (e) {
-          console.warn("Failed to set zoom factor:", e);
-        }
-      };
-
-      const onDomReady = async () => {
-        applyZoom();
-        try {
-          // Get the actual Flash plugin process PID instead of the webview PID
-          const osPid = await window.electron.getFlashPid();
-          setPid(osPid);
-        } catch (e) {
-          console.warn("Failed to get Flash PID:", e);
-        }
-      };
-
-      const onDidFinishLoad = () => {
-        applyZoom();
-      };
-
-      webview.addEventListener("dom-ready", onDomReady);
-      webview.addEventListener("did-finish-load", onDidFinishLoad);
-
-      return () => {
-        webview.removeEventListener("dom-ready", onDomReady);
-        webview.removeEventListener("did-finish-load", onDidFinishLoad);
-      };
+  const applyZoom = useCallback(() => {
+    if (!webviewRef.current) {
+      return;
     }
-  }, [id, url]);
+
+    try {
+      webviewRef.current.setZoomFactor(latestZoomRef.current);
+    } catch (e) {
+      console.warn("Failed to set zoom factor:", e);
+    }
+  }, []);
 
   useEffect(() => {
-    if (webviewRef.current) {
+    latestZoomRef.current = zoomFactor;
+    applyZoom();
+  }, [zoomFactor, applyZoom]);
+
+  useEffect(() => {
+    if (!webviewRef.current) {
+      return;
+    }
+
+    const webview = webviewRef.current;
+
+    const onDomReady = async () => {
+      applyZoom();
       try {
-        webviewRef.current.setZoomFactor(zoomFactor);
+        // Get the actual Flash plugin process PID instead of the webview PID
+        const osPid = await window.electron.getFlashPid();
+        setPid(osPid);
       } catch (e) {
-        console.warn("Failed to set zoom factor:", e);
+        console.warn("Failed to get Flash PID:", e);
       }
-    }
-  }, [zoomFactor]);
+    };
+
+    const onNavigation = () => {
+      // Electron 11 webview may reset zoom on navigation.
+      applyZoom();
+    };
+
+    webview.addEventListener("dom-ready", onDomReady);
+    webview.addEventListener("did-finish-load", onNavigation);
+    webview.addEventListener("did-navigate", onNavigation);
+    webview.addEventListener("did-navigate-in-page", onNavigation);
+    webview.addEventListener("did-stop-loading", onNavigation);
+
+    return () => {
+      webview.removeEventListener("dom-ready", onDomReady);
+      webview.removeEventListener("did-finish-load", onNavigation);
+      webview.removeEventListener("did-navigate", onNavigation);
+      webview.removeEventListener("did-navigate-in-page", onNavigation);
+      webview.removeEventListener("did-stop-loading", onNavigation);
+    };
+  }, [id, url, applyZoom]);
 
   const handleZoom = (delta: number) => {
     const newZoom = Math.max(0.2, Math.min(3, zoomFactor + delta));
