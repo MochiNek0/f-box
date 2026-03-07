@@ -2,6 +2,20 @@
 #SingleInstance Force
 #NoTrayIcon
 
+; 性能优化：降低发送/轮询延迟，提升按键映射响应速度
+SendMode("Input")
+SetKeyDelay(-1, -1)
+SetControlDelay(-1)
+SetMouseDelay(-1)
+SetWinDelay(0)
+ProcessSetPriority("High")
+
+global POLL_INTERVAL_MS := 4
+global TRIGGER_THRESHOLD := 20
+global STICK_THRESHOLD := 12000
+global STICK_DEADZONE := 9000
+global STICK_DOMINANCE_RATIO := 1.25
+
 ; =================================================================
 ; 1. 参数获取与基础初始化
 ; =================================================================
@@ -107,7 +121,7 @@ for source, target in keyboardMappings {
 ; =================================================================
 ; 4. XInput 手柄轮询逻辑
 ; =================================================================
-SetTimer(PollJoysticks, 10)
+SetTimer(PollJoysticks, POLL_INTERVAL_MS)
 SetTimer(CheckParentProcess, 5000)
 
 PollJoysticks() {
@@ -209,19 +223,40 @@ GetXInputButtonState(state, btn) {
         case "RB", "R1": return (wBtn & 0x0200) != 0
         
         ; 扳机键 (阈值设定为 30，范围 0~255)
-        case "LT", "L2": return state.bLeftTrigger > 30
-        case "RT", "R2": return state.bRightTrigger > 30
+        case "LT", "L2": return state.bLeftTrigger > TRIGGER_THRESHOLD
+        case "RT", "R2": return state.bRightTrigger > TRIGGER_THRESHOLD
         
-        ; 摇杆 (阈值设定为 16000，约 50% 推拉幅度，范围 -32768~32767)
-        case "LX+": return state.sThumbLX > 16000
-        case "LX-": return state.sThumbLX < -16000
-        case "LY+": return state.sThumbLY > 16000  ; XInput中 Y+ 是物理向上
-        case "LY-": return state.sThumbLY < -16000 ; XInput中 Y- 是物理向下
-        case "RX+": return state.sThumbRX > 16000
-        case "RX-": return state.sThumbRX < -16000
-        case "RY+": return state.sThumbRY > 16000
-        case "RY-": return state.sThumbRY < -16000
+        ; 摇杆方向判定（主轴优先，减少斜向输入导致的上下/左右串扰）
+        case "LX+": return IsStickDirectionPressed(state.sThumbLX, state.sThumbLY, "X+")
+        case "LX-": return IsStickDirectionPressed(state.sThumbLX, state.sThumbLY, "X-")
+        case "LY+": return IsStickDirectionPressed(state.sThumbLX, state.sThumbLY, "Y+") ; XInput中 Y+ 是物理向上
+        case "LY-": return IsStickDirectionPressed(state.sThumbLX, state.sThumbLY, "Y-") ; XInput中 Y- 是物理向下
+        case "RX+": return IsStickDirectionPressed(state.sThumbRX, state.sThumbRY, "X+")
+        case "RX-": return IsStickDirectionPressed(state.sThumbRX, state.sThumbRY, "X-")
+        case "RY+": return IsStickDirectionPressed(state.sThumbRX, state.sThumbRY, "Y+")
+        case "RY-": return IsStickDirectionPressed(state.sThumbRX, state.sThumbRY, "Y-")
         
+        default: return false
+    }
+}
+
+; 摇杆方向判定：
+; 1) 双轴都在死区内则不触发
+; 2) 目标轴需要超过阈值
+; 3) 目标轴需相对另一轴占优（dominance ratio）
+; 这样可以更清晰地区分“上/下/左/右”的分界，减少斜向误触。
+IsStickDirectionPressed(x, y, dir) {
+    absX := Abs(x)
+    absY := Abs(y)
+
+    if (absX < STICK_DEADZONE && absY < STICK_DEADZONE)
+        return false
+
+    switch dir {
+        case "X+": return x > 0 && absX >= STICK_THRESHOLD && absX >= absY * STICK_DOMINANCE_RATIO
+        case "X-": return x < 0 && absX >= STICK_THRESHOLD && absX >= absY * STICK_DOMINANCE_RATIO
+        case "Y+": return y > 0 && absY >= STICK_THRESHOLD && absY >= absX * STICK_DOMINANCE_RATIO
+        case "Y-": return y < 0 && absY >= STICK_THRESHOLD && absY >= absX * STICK_DOMINANCE_RATIO
         default: return false
     }
 }
