@@ -14,6 +14,8 @@ ProcessSetPriority("High")
 global POLL_INTERVAL_MS := 4
 global TRIGGER_THRESHOLD := 20
 global STICK_THRESHOLD := 12000
+global STICK_DEADZONE := 9000
+global STICK_DOMINANCE_RATIO := 1.25
 
 ; =================================================================
 ; 1. 参数获取与基础初始化
@@ -225,16 +227,37 @@ GetXInputButtonState(state, btn) {
         case "LT", "L2": return state.bLeftTrigger > TRIGGER_THRESHOLD
         case "RT", "R2": return state.bRightTrigger > TRIGGER_THRESHOLD
         
-        ; 摇杆 (阈值设定为 16000，约 50% 推拉幅度，范围 -32768~32767)
-        case "LX+": return state.sThumbLX > STICK_THRESHOLD
-        case "LX-": return state.sThumbLX < -STICK_THRESHOLD
-        case "LY+": return state.sThumbLY > STICK_THRESHOLD  ; XInput中 Y+ 是物理向上
-        case "LY-": return state.sThumbLY < -STICK_THRESHOLD ; XInput中 Y- 是物理向下
-        case "RX+": return state.sThumbRX > STICK_THRESHOLD
-        case "RX-": return state.sThumbRX < -STICK_THRESHOLD
-        case "RY+": return state.sThumbRY > STICK_THRESHOLD
-        case "RY-": return state.sThumbRY < -STICK_THRESHOLD
+        ; 摇杆方向判定（主轴优先，减少斜向输入导致的上下/左右串扰）
+        case "LX+": return IsStickDirectionPressed(state.sThumbLX, state.sThumbLY, "X+")
+        case "LX-": return IsStickDirectionPressed(state.sThumbLX, state.sThumbLY, "X-")
+        case "LY+": return IsStickDirectionPressed(state.sThumbLX, state.sThumbLY, "Y+") ; XInput中 Y+ 是物理向上
+        case "LY-": return IsStickDirectionPressed(state.sThumbLX, state.sThumbLY, "Y-") ; XInput中 Y- 是物理向下
+        case "RX+": return IsStickDirectionPressed(state.sThumbRX, state.sThumbRY, "X+")
+        case "RX-": return IsStickDirectionPressed(state.sThumbRX, state.sThumbRY, "X-")
+        case "RY+": return IsStickDirectionPressed(state.sThumbRX, state.sThumbRY, "Y+")
+        case "RY-": return IsStickDirectionPressed(state.sThumbRX, state.sThumbRY, "Y-")
         
+        default: return false
+    }
+}
+
+; 摇杆方向判定：
+; 1) 双轴都在死区内则不触发
+; 2) 目标轴需要超过阈值
+; 3) 目标轴需相对另一轴占优（dominance ratio）
+; 这样可以更清晰地区分“上/下/左/右”的分界，减少斜向误触。
+IsStickDirectionPressed(x, y, dir) {
+    absX := Abs(x)
+    absY := Abs(y)
+
+    if (absX < STICK_DEADZONE && absY < STICK_DEADZONE)
+        return false
+
+    switch dir {
+        case "X+": return x > 0 && absX >= STICK_THRESHOLD && absX >= absY * STICK_DOMINANCE_RATIO
+        case "X-": return x < 0 && absX >= STICK_THRESHOLD && absX >= absY * STICK_DOMINANCE_RATIO
+        case "Y+": return y > 0 && absY >= STICK_THRESHOLD && absY >= absX * STICK_DOMINANCE_RATIO
+        case "Y-": return y < 0 && absY >= STICK_THRESHOLD && absY >= absX * STICK_DOMINANCE_RATIO
         default: return false
     }
 }
