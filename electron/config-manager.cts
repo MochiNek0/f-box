@@ -79,6 +79,12 @@ enabled=1
   }
 
   startAHK(): void {
+    // Only support keymap on Windows
+    if (process.platform !== "win32") {
+      console.log("Keymap (AHK) is only supported on Windows");
+      return;
+    }
+
     if (this.ahkProcess) {
       this.ahkProcess.kill();
       this.ahkProcess = null;

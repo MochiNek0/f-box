@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("electron", {
+  getPlatform: () => process.platform,
   windowControls: (action: "minimize" | "maximize" | "close") => {
     ipcRenderer.send("window-controls", action);
   },

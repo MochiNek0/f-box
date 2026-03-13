@@ -24,6 +24,10 @@ export class OcrManager {
   }
 
   public isInstalled(): boolean {
+    // Only support OCR on Windows
+    if (process.platform !== "win32") {
+      return false;
+    }
     const pluginPath = this.getPluginPath();
     const exePath = path.join(pluginPath, "PaddleOCR-json.exe");
     return fs.existsSync(exePath);
@@ -151,6 +155,12 @@ export class OcrManager {
   public async install(
     onProgress?: (percent: number) => void,
   ): Promise<boolean> {
+    // Only support OCR on Windows
+    if (process.platform !== "win32") {
+      console.log("OCR is only supported on Windows");
+      return false;
+    }
+
     const rawUrl =
       "https://github.com/MochiNek0/f-box/releases/download/ocr-plugin/ocr.zip";
     const downloadUrl = await getFastestProxy(rawUrl);

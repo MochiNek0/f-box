@@ -23,7 +23,13 @@ export class ShortcutManager {
   }
 
   setupTray(): void {
-    const iconPath = path.join(__dirname, "..", "public", "icon.ico");
+    // Platform-specific icon
+    let iconPath: string;
+    if (process.platform === "darwin") {
+      iconPath = path.join(__dirname, "..", "public", "icon.png");
+    } else {
+      iconPath = path.join(__dirname, "..", "public", "icon.ico");
+    }
 
     if (!fs.existsSync(iconPath)) {
       console.warn("Tray icon not found at:", iconPath);
@@ -46,7 +52,7 @@ export class ShortcutManager {
       },
     ]);
 
-    this.tray.setToolTip("Flash Game Browser");
+    this.tray.setToolTip("F-Box");
     this.tray.setContextMenu(contextMenu);
 
     this.tray.on("double-click", () => {

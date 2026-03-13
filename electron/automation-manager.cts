@@ -48,6 +48,12 @@ export class AutomationManager {
   }
 
   private getAutomationRuntime(): { exe: string; args: string[] } {
+    // Only support automation on Windows
+    if (process.platform !== "win32") {
+      console.log("Automation is only supported on Windows");
+      return { exe: "", args: [] };
+    }
+
     const exePath = app.isPackaged
       ? path.join(process.resourcesPath, "automation.exe")
       : path.join(__dirname, "..", "public", "assets", "automation.exe");

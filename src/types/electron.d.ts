@@ -66,6 +66,7 @@ export interface AutomationAPI {
 }
 
 export interface IElectronAPI {
+  getPlatform: () => string;
   windowControls: (action: "minimize" | "maximize" | "close") => void;
   setOpacity: (opacity: number) => void;
   checkFlash: () => Promise<boolean>;

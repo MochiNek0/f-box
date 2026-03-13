@@ -37,14 +37,6 @@ function findSystemFlashPlugin(): string | null {
         "PepperFlashPlayer.plugin",
       ),
     ];
-  } else if (process.platform === "linux") {
-    flashFileName = "libpepflashplayer.so";
-    searchPaths = [
-      "/usr/lib/adobe-flashplugin/libpepflashplayer.so",
-      "/usr/lib/pepperflashplugin-nonfree/libpepflashplayer.so",
-      "/usr/lib/PepperFlash/libpepflashplayer.so",
-      "/opt/google/chrome/PepperFlash/libpepflashplayer.so",
-    ];
   }
 
   console.log(

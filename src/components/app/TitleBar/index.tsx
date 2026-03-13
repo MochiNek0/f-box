@@ -42,15 +42,9 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
         <div className="w-5 h-5 bg-orange-500 rounded flex items-center justify-center flex-shrink-0">
           <span className="text-white text-[10px] font-bold">F</span>
         </div>
-        <span className="text-zinc-300 text-sm font-medium max-md:hidden">
-          Flash Game Browser
-        </span>
       </div>
 
-      <div
-        className="flex items-center h-full no-drag"
-        style={noDragStyle}
-      >
+      <div className="flex items-center h-full no-drag" style={noDragStyle}>
         {/* Opacity Slider */}
         <div className="flex items-center gap-2 px-3 border-r border-zinc-800">
           <SunDim size={14} className="text-zinc-500" />

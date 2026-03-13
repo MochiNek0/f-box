@@ -15,13 +15,21 @@ export class WindowManager {
   }
 
   createWindow(): BrowserWindow {
+    // Platform-specific icon
+    let iconPath: string;
+    if (process.platform === "darwin") {
+      iconPath = path.join(__dirname, "..", "public", "icon.png");
+    } else {
+      iconPath = path.join(__dirname, "..", "public", "icon.ico");
+    }
+
     this.mainWindow = new BrowserWindow({
       width: 1280,
       height: 800,
       minWidth: 320,
       frame: false, // Frameless window
       transparent: false, // Start as non-transparent
-      icon: path.join(__dirname, "..", "public", "icon.ico"),
+      icon: iconPath,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,

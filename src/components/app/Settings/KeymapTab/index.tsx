@@ -4,7 +4,49 @@ import { Button } from "../../../common/Button";
 import { IconButton } from "../../../common/IconButton";
 import { KeySelectorDropdown } from "../KeySelectorDropdown";
 
+const isWindows = () => window.electron.getPlatform() === "win32";
+
 export const KeymapTab: React.FC = () => {
+  const [isPlatformSupported, setIsPlatformSupported] = useState(true);
+
+  useEffect(() => {
+    setIsPlatformSupported(isWindows());
+  }, []);
+
+  // Show unsupported message on non-Windows platforms
+  if (!isPlatformSupported) {
+    return (
+      <section className="bg-zinc-800/30 p-6 rounded-2xl border border-zinc-800/50">
+        <div className="flex flex-col items-center justify-center py-8 text-center">
+          <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center mb-4">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="32"
+              height="32"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-zinc-500"
+            >
+              <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+              <line x1="9" x2="15" y1="9" y2="15" />
+              <line x1="15" x2="9" y1="9" y2="15" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-medium text-zinc-300 mb-2">
+            此功能仅支持 Windows
+          </h3>
+          <p className="text-sm text-zinc-500 max-w-md">
+            键位映射功能依赖 AutoHotkey，目前仅在 Windows 平台上可用。
+          </p>
+        </div>
+      </section>
+    );
+  }
+
   const [keymapConfig, setKeymapConfig] = useState<{
     enabled: boolean;
     mappings: Array<{ source: string; target: string }>;
