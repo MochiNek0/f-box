@@ -21,6 +21,18 @@ type AutomationFeedback = {
   ocrMatched: boolean | null;
 };
 
+const areFeedbackEqual = (
+  a: AutomationFeedback,
+  b: AutomationFeedback,
+): boolean => {
+  return (
+    a.runCount === b.runCount &&
+    a.lastStatus === b.lastStatus &&
+    a.lastOcrText === b.lastOcrText &&
+    a.ocrMatched === b.ocrMatched
+  );
+};
+
 const App: React.FC = () => {
   const [hasFlash, setHasFlash] = useState<boolean | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -89,27 +101,36 @@ const App: React.FC = () => {
 
         if (action === "LOOP_START") {
           const currentRound = parseInt(parts[2] || "0", 10);
-          setAutomationFeedback((prev) => ({
-            ...prev,
-            runCount: Number.isNaN(currentRound) ? prev.runCount : currentRound,
-            lastStatus: `第 ${parts[2] ?? "0"} 次执行中`,
-          }));
+          setAutomationFeedback((prev) => {
+            const next = {
+              ...prev,
+              runCount: Number.isNaN(currentRound) ? prev.runCount : currentRound,
+              lastStatus: `第 ${parts[2] ?? "0"} 次执行中`,
+            };
+            return areFeedbackEqual(prev, next) ? prev : next;
+          });
           return;
         }
 
         if (action === "CONDITION_MET") {
-          setAutomationFeedback((prev) => ({
-            ...prev,
-            lastStatus: `停止条件满足，共执行 ${parts[2] ?? prev.runCount} 次`,
-          }));
+          setAutomationFeedback((prev) => {
+            const next = {
+              ...prev,
+              lastStatus: `停止条件满足，共执行 ${parts[2] ?? prev.runCount} 次`,
+            };
+            return areFeedbackEqual(prev, next) ? prev : next;
+          });
           return;
         }
 
         if (action === "STOPPED") {
-          setAutomationFeedback((prev) => ({
-            ...prev,
-            lastStatus: `已停止，共执行 ${parts[2] ?? prev.runCount} 次`,
-          }));
+          setAutomationFeedback((prev) => {
+            const next = {
+              ...prev,
+              lastStatus: `已停止，共执行 ${parts[2] ?? prev.runCount} 次`,
+            };
+            return areFeedbackEqual(prev, next) ? prev : next;
+          });
           return;
         }
 
@@ -121,31 +142,40 @@ const App: React.FC = () => {
           } catch {
             decodedText = parts.slice(4).join("|");
           }
-          setAutomationFeedback((prev) => ({
-            ...prev,
-            lastOcrText: decodedText || "（未识别到文本）",
-            ocrMatched: matched,
-            lastStatus: matched
-              ? "OCR 识别成功，触发停止"
-              : "OCR 未匹配，继续执行",
-          }));
+          setAutomationFeedback((prev) => {
+            const next = {
+              ...prev,
+              lastOcrText: decodedText || "（未识别到文本）",
+              ocrMatched: matched,
+              lastStatus: matched
+                ? "OCR 识别成功，触发停止"
+                : "OCR 未匹配，继续执行",
+            };
+            return areFeedbackEqual(prev, next) ? prev : next;
+          });
           return;
         }
 
         if (action === "OCR_NOT_INSTALLED") {
-          setAutomationFeedback((prev) => ({
-            ...prev,
-            ocrMatched: false,
-            lastStatus: "未安装 OCR 扩展，断点识别不可用",
-          }));
+          setAutomationFeedback((prev) => {
+            const next = {
+              ...prev,
+              ocrMatched: false,
+              lastStatus: "未安装 OCR 扩展，断点识别不可用",
+            };
+            return areFeedbackEqual(prev, next) ? prev : next;
+          });
           return;
         }
 
         if (action === "PLAYING") {
-          setAutomationFeedback((prev) => ({
-            ...prev,
-            lastStatus: "自动化执行中",
-          }));
+          setAutomationFeedback((prev) => {
+            const next = {
+              ...prev,
+              lastStatus: "自动化执行中",
+            };
+            return areFeedbackEqual(prev, next) ? prev : next;
+          });
         }
       });
 
