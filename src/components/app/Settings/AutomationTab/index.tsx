@@ -10,6 +10,7 @@ import {
   Save,
   Download,
   Box,
+  Eye,
 } from "lucide-react";
 import { IconButton } from "../../../common/IconButton";
 
@@ -77,6 +78,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
 
   // Config for expanded script
   const [repeatCount, setRepeatCount] = useState(0);
+  const [scriptEvents, setScriptEvents] = useState<any[]>([]);
   const [ocrInstalled, setOcrInstalled] = useState(false);
   const [isInstallingOcr, setIsInstallingOcr] = useState(false);
 
@@ -91,55 +93,57 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
 
   // Setup status listener
   useEffect(() => {
-    const detachStatus = window.electron.automation.onStatus((status: string) => {
-      const parts = status.split("|");
-      if (parts[0] === "STATUS") {
-        const action = parts[1];
-        switch (action) {
-          case "RECORDING":
-            setStatusMessage("🔴 正在录制... 按 F10 停止");
-            break;
-          case "RECORD_DONE":
-            setStatusMessage("✅ 录制完成");
-            setIsRecording(false);
-            refreshScripts();
-            break;
-          case "PLAYING":
-            setStatusMessage("▶️ 正在播放...");
-            break;
-          case "LOOP_START":
-            setLoopCount(parseInt(parts[2] || "0", 10));
-            setStatusMessage(`🔄 第 ${parts[2]} 轮执行中...`);
-            break;
-          case "LOOP_END":
-            setStatusMessage(`✅ 第 ${parts[2]} 轮完成，检查停止条件...`);
-            break;
-          case "CONDITION_MET":
-            setStatusMessage(`🎉 停止条件已满足！共执行 ${parts[2]} 轮`);
-            setIsPlaying(false);
-            setPlayingScript(null);
-            break;
-          case "STOPPED":
-            setStatusMessage(`⏹️ 已停止，共执行 ${parts[2]} 轮`);
-            setIsPlaying(false);
-            setPlayingScript(null);
-            break;
-          case "PROCESS_EXIT":
-            if (isRecording) {
+    const detachStatus = window.electron.automation.onStatus(
+      (status: string) => {
+        const parts = status.split("|");
+        if (parts[0] === "STATUS") {
+          const action = parts[1];
+          switch (action) {
+            case "RECORDING":
+              setStatusMessage("🔴 正在录制... 按 F10 停止");
+              break;
+            case "RECORD_DONE":
+              setStatusMessage("✅ 录制完成");
               setIsRecording(false);
               refreshScripts();
-            }
-            if (isPlaying) {
+              break;
+            case "PLAYING":
+              setStatusMessage("▶️ 正在播放...");
+              break;
+            case "LOOP_START":
+              setLoopCount(parseInt(parts[2] || "0", 10));
+              setStatusMessage(`🔄 第 ${parts[2]} 轮执行中...`);
+              break;
+            case "LOOP_END":
+              setStatusMessage(`✅ 第 ${parts[2]} 轮完成，检查停止条件...`);
+              break;
+            case "CONDITION_MET":
+              setStatusMessage(`🎉 停止条件已满足！共执行 ${parts[2]} 轮`);
               setIsPlaying(false);
               setPlayingScript(null);
-            }
-            break;
-          case "OCR_NOT_INSTALLED":
-            setStatusMessage("⚠️ 未安装 OCR 扩展，无法触发断点。请先下载。");
-            break;
+              break;
+            case "STOPPED":
+              setStatusMessage(`⏹️ 已停止，共执行 ${parts[2]} 轮`);
+              setIsPlaying(false);
+              setPlayingScript(null);
+              break;
+            case "PROCESS_EXIT":
+              if (isRecording) {
+                setIsRecording(false);
+                refreshScripts();
+              }
+              if (isPlaying) {
+                setIsPlaying(false);
+                setPlayingScript(null);
+              }
+              break;
+            case "OCR_NOT_INSTALLED":
+              setStatusMessage("⚠️ 未安装 OCR 扩展，无法触发断点。请先下载。");
+              break;
+          }
         }
-      }
-    });
+      },
+    );
 
     window.electron.onOcrInstallProgress((percent) => {
       setOcrInstallProgress(percent);
@@ -188,6 +192,20 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
           setRepeatCount(0);
         }
       });
+      // Load script events to find OCR breakpoints
+      window.electron.automation
+        .getScriptEvents(expandedScript)
+        .then((result) => {
+          if (result.success && result.events) {
+            console.log(result.events);
+
+            setScriptEvents(result.events);
+          } else {
+            setScriptEvents([]);
+          }
+        });
+    } else {
+      setScriptEvents([]);
     }
   }, [expandedScript]);
 
@@ -222,16 +240,28 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
     setStatusMessage(`已删除: ${name}`);
   };
 
+  const handleUpdateOcrText = (eventIndex: number, newText: string) => {
+    setScriptEvents((prev) => {
+      const updated = [...prev];
+      updated[eventIndex] = { ...updated[eventIndex], text: newText };
+      return updated;
+    });
+  };
+
   const handleSaveConfig = async () => {
     if (!expandedScript) return;
     const config = {
       repeatCount,
     };
-    const result = await window.electron.automation.saveConfig(
+    const configResult = await window.electron.automation.saveConfig(
       expandedScript,
       config,
     );
-    if (result.success) {
+    // Also save updated script events (OCR text changes)
+    if (scriptEvents.length > 0) {
+      await window.electron.automation.saveScript(expandedScript, scriptEvents);
+    }
+    if (configResult.success) {
       setStatusMessage("✅ 配置已保存");
       if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
       statusTimeoutRef.current = setTimeout(() => setStatusMessage(""), 2000);
@@ -461,6 +491,48 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
                         />
                       </div>
                     </div>
+
+                    {/* OCR Breakpoint Editing */}
+                    {scriptEvents.some((ev) => ev.type === "breakpoint") && (
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.15em] flex items-center gap-1.5">
+                          <Eye size={12} className="text-blue-400" />
+                          OCR 断点设置
+                        </label>
+                        {scriptEvents.map((ev, idx) =>
+                          ev.type === "breakpoint" ? (
+                            <div
+                              key={idx}
+                              className="bg-zinc-900/60 rounded-lg border border-zinc-700/40 p-3 space-y-2"
+                            >
+                              <div className="flex items-center gap-2 text-[10px] text-zinc-500 font-mono">
+                                <span className="bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded">
+                                  #{idx}
+                                </span>
+                                <span>
+                                  区域: ({ev.x}, {ev.y}, {ev.w}×
+                                  {ev.h})
+                                </span>
+                              </div>
+                              <div>
+                                <label className="text-xs text-zinc-400 block mb-1">
+                                  匹配文字 (可用 | 隔开多组)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={ev.text}
+                                  onChange={(e) =>
+                                    handleUpdateOcrText(idx, e.target.value)
+                                  }
+                                  placeholder="输入匹配文字..."
+                                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500 transition-colors"
+                                />
+                              </div>
+                            </div>
+                          ) : null,
+                        )}
+                      </div>
+                    )}
 
                     <div className="flex justify-end items-center pt-2">
                       <Button

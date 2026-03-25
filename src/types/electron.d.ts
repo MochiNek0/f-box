@@ -48,6 +48,9 @@ export interface AutomationAPI {
     text: string;
     tTrigger?: number;
   }) => Promise<{ success: boolean; error?: string }>;
+  getScriptEvents: (
+    name: string,
+  ) => Promise<{ success: boolean; events?: any[]; error?: string }>;
   getScreenshot: () => Promise<{ data: string } | { error: string }>;
   onOCRRequest: (
     callback: (data: {

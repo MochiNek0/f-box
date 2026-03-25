@@ -334,12 +334,38 @@ export class AutomationManager {
     const cfgPath = path.join(this.scriptsConfigDir, `${name}.json`);
     try {
       if (fs.existsSync(cfgPath)) {
-        return JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+        let content = fs.readFileSync(cfgPath, "utf-8");
+        if (content.charCodeAt(0) === 0xFEFF) {
+          content = content.slice(1);
+        }
+        return JSON.parse(content);
       }
     } catch {
       // ignore
     }
     return null;
+  }
+
+  async getScriptEvents(
+    name: string,
+  ): Promise<{ success: boolean; events?: any[]; error?: string }> {
+    this.ensureScriptDirs();
+    const scriptPath = path.join(this.scriptsDir, `${name}.json`);
+    try {
+      if (!fs.existsSync(scriptPath)) {
+        return { success: false, error: "脚本文件不存在" };
+      }
+      let content = fs.readFileSync(scriptPath, "utf-8");
+      if (content.charCodeAt(0) === 0xFEFF) {
+        content = content.slice(1);
+      }
+      const events = JSON.parse(content);
+      const breakpointsFound = events.filter((e: any) => e.type === "breakpoint").length;
+      console.log(`[Backend Debug] getScriptEvents loaded ${events.length} events for ${name}. Breakpoints: ${breakpointsFound}`);
+      return { success: true, events };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
   }
 
   async breakpointResume(
@@ -433,6 +459,14 @@ export class AutomationManager {
       "automation-breakpoint-resume",
       async (_event, data: BreakpointData) => {
         return this.breakpointResume(data);
+      },
+    );
+
+    // Get Script Events
+    ipcMain.handle(
+      "automation-get-script-events",
+      async (_event, name: string) => {
+        return this.getScriptEvents(name);
       },
     );
 

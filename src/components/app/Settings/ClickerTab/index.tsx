@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Play,
   Square,
@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "../../../common/Button";
 import { IconButton } from "../../../common/IconButton";
+import { KeySelectorDropdown } from "../KeySelectorDropdown";
 
 const isWindows = () => window.electron.getPlatform() === "win32";
 
@@ -45,6 +46,8 @@ export const ClickerTab: React.FC = () => {
   const [loopCount, setLoopCount] = useState<number>(0); // 0 = infinite
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string>("");
+  const [recordingIndex, setRecordingIndex] = useState<{ id: string } | null>(null);
+  const [selectorState, setSelectorState] = useState<{ id: string, isOpen: boolean } | null>(null);
 
   useEffect(() => {
     setIsPlatformSupported(isWindows());
@@ -115,6 +118,151 @@ export const ClickerTab: React.FC = () => {
       detachStatus();
     };
   }, []);
+
+  const handleGlobalKeyDown = (e: KeyboardEvent) => {
+    if (recordingIndex) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      let key = e.key;
+      if (key === " ") key = "Space";
+      if (key.startsWith("Arrow")) key = key.replace("Arrow", "");
+      if (key === "PageUp") key = "PgUp";
+      if (key === "PageDown") key = "PgDn";
+
+      if (e.location === 3) {
+        if (key >= "0" && key <= "9") {
+          key = "Numpad" + key;
+        } else if (key === "Enter") {
+          key = "NumpadEnter";
+        } else if (key === ".") {
+          key = "NumpadDot";
+        } else if (key === "+") {
+          key = "NumpadAdd";
+        } else if (key === "-") {
+          key = "NumpadSub";
+        } else if (key === "*") {
+          key = "NumpadMult";
+        } else if (key === "/") {
+          key = "NumpadDiv";
+        }
+      }
+
+      handleUpdateStep(recordingIndex.id, "key", key);
+      setRecordingIndex(null);
+    }
+  };
+
+  useEffect(() => {
+    if (recordingIndex) {
+      window.electron.suspendKeymap();
+      window.addEventListener("keydown", handleGlobalKeyDown);
+    } else {
+      window.electron.resumeKeymap();
+    }
+    return () => {
+      window.removeEventListener("keydown", handleGlobalKeyDown);
+    };
+  }, [recordingIndex, steps]);
+
+  // Ensure Keymap is resumed when component unmounts if it was recording
+  useEffect(() => {
+    return () => {
+      window.electron.resumeKeymap();
+    };
+  }, []);
+
+  const requestRef = useRef<number | null>(null);
+
+  const pollGamepads = () => {
+    if (!recordingIndex) return;
+
+    const gamepads = navigator.getGamepads();
+    for (let gamepadIdx = 0; gamepadIdx < gamepads.length; gamepadIdx++) {
+      const gamepad = gamepads[gamepadIdx];
+      if (!gamepad) continue;
+
+      const gamepadNumber = gamepadIdx + 1;
+
+      const buttonNames = [
+        "A", "B", "X", "Y", "LB", "RB", "LT", "RT", "BACK", "START", "LS", "RS", "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT"
+      ];
+
+      for (let i = 0; i < gamepad.buttons.length; i++) {
+        const button = gamepad.buttons[i];
+        if (button.pressed || button.value > 0.5) {
+          const keyName = i < buttonNames.length ? buttonNames[i] : `${i + 1}`;
+          const key = `${gamepadNumber}Joy${keyName}`;
+          handleUpdateStep(recordingIndex.id, "key", key);
+          setRecordingIndex(null);
+          return;
+        }
+      }
+
+      const axisNames = ["LX", "LY", "RX", "RY"];
+      for (let i = 0; i < Math.min(gamepad.axes.length, 4); i++) {
+        const axisValue = gamepad.axes[i];
+        if (Math.abs(axisValue) > 0.5) {
+          let direction = "";
+          const axisName = axisNames[i];
+
+          if (i === 1 || i === 3) {
+            direction = axisValue < -0.5 ? "+" : "-";
+          } else {
+            direction = axisValue > 0.5 ? "+" : "-";
+          }
+
+          const key = `${gamepadNumber}Joy${axisName}${direction}`;
+          handleUpdateStep(recordingIndex.id, "key", key);
+          setRecordingIndex(null);
+          return;
+        }
+      }
+    }
+    requestRef.current = requestAnimationFrame(pollGamepads);
+  };
+
+  useEffect(() => {
+    if (recordingIndex) {
+      requestRef.current = requestAnimationFrame(pollGamepads);
+    }
+    return () => {
+      if (requestRef.current !== null) {
+        cancelAnimationFrame(requestRef.current);
+      }
+    };
+  }, [recordingIndex, steps]);
+
+  // Helper to format key names for display
+  const formatKeyDisplay = (key: string) => {
+    if (!key) return null;
+
+    // Gamepad mapping visualization
+    const joyMatch = key.match(/^(\d+)Joy(.+)$/);
+    if (joyMatch) {
+      const pIdx = joyMatch[1];
+      let btn = joyMatch[2];
+
+      const btnMap: Record<string, string> = {
+        DPAD_UP: "↑", DPAD_DOWN: "↓", DPAD_LEFT: "←", DPAD_RIGHT: "→",
+        UP: "↑", DOWN: "↓", LEFT: "←", RIGHT: "→",
+        "LX+": "L-Stick →", "LX-": "L-Stick ←", "LY+": "L-Stick ↑", "LY-": "L-Stick ↓",
+        "RX+": "R-Stick →", "RX-": "R-Stick ←", "RY+": "R-Stick ↑", "RY-": "R-Stick ↓",
+        Lt: "LT", Rt: "RT",
+      };
+
+      if (btnMap[btn]) btn = btnMap[btn];
+
+      return (
+        <span className="inline-flex items-center gap-1">
+          <span className="opacity-50 text-[10px]">🎮 P{pIdx}</span>
+          <span className="font-bold">{btn}</span>
+        </span>
+      );
+    }
+
+    return key;
+  };
 
   const handleAddStep = () => {
     setSteps((prev) => [...prev, createStep()]);
@@ -260,18 +408,43 @@ export const ClickerTab: React.FC = () => {
               </div>
 
               <div className="flex-1 flex gap-3 max-md:flex-col">
-                <div className="flex-1 flex items-center gap-2">
+                <div className="flex-1 flex items-center gap-2 relative">
                   <span className="text-xs text-zinc-400">按键</span>
-                  <input
-                    type="text"
-                    maxLength={1}
-                    disabled={isPlaying}
-                    value={step.key}
-                    onChange={(e) =>
-                      handleUpdateStep(step.id, "key", e.target.value)
-                    }
-                    className="w-16 bg-zinc-800 border-zinc-600 rounded-md px-2 py-1.5 text-center text-sm font-mono text-orange-400 focus:outline-none focus:border-orange-500 uppercase disabled:opacity-50"
-                  />
+                  
+                  <div className="relative">
+                    <button
+                      disabled={isPlaying}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        if (!isPlaying) {
+                          setSelectorState({
+                            id: step.id,
+                            isOpen: true,
+                          });
+                        }
+                      }}
+                      onClick={() => !isPlaying && setRecordingIndex({ id: step.id })}
+                      className={`min-w-[72px] h-8 border rounded-md px-3 flex items-center justify-center text-sm font-mono transition-colors disabled:opacity-50 ${
+                        recordingIndex?.id === step.id
+                          ? "border-orange-500 bg-orange-500/5 text-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.1)]"
+                          : "bg-zinc-800 border-zinc-600 hover:border-orange-500 text-orange-400"
+                      }`}
+                    >
+                      {recordingIndex?.id === step.id ? "请按键..." : (formatKeyDisplay(step.key) || "选择")}
+                    </button>
+
+                    {/* Key Selector Dropdown */}
+                    {selectorState?.isOpen && selectorState.id === step.id && (
+                      <KeySelectorDropdown
+                        type="source"
+                        onSelect={(key) => {
+                          handleUpdateStep(step.id, "key", key);
+                          setSelectorState(null);
+                        }}
+                        onClose={() => setSelectorState(null)}
+                      />
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex-1 flex items-center gap-2">

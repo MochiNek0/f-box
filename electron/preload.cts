@@ -87,6 +87,8 @@ contextBridge.exposeInMainWorld("electron", {
       text: string;
       tTrigger?: number;
     }) => ipcRenderer.invoke("automation-breakpoint-resume", data),
+    getScriptEvents: (name: string) =>
+      ipcRenderer.invoke("automation-get-script-events", name),
     getScreenshot: () => ipcRenderer.invoke("automation-get-screenshot"),
     onOCRRequest: (
       callback: (data: {

@@ -406,8 +406,6 @@ SaveEventsJSON(events, filePath) {
         if evt.HasProp("button")
             json .= ',"button":"' evt.button '"'
         if (evt.type = "breakpoint") {
-            json .= ',"x":' evt.x
-            json .= ',"y":' evt.y
             json .= ',"w":' evt.w
             json .= ',"h":' evt.h
             json .= ',"text":"' EscapeJSON(evt.text) '"'
