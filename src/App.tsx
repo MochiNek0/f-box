@@ -329,16 +329,16 @@ const App: React.FC = () => {
       )}
 
       {showAutomationFeedback && (
-        <div className="fixed right-3 top-14 z-40 w-40 rounded-lg border border-zinc-700/80 bg-zinc-900/95 shadow-2xl backdrop-blur p-2.5 flex flex-col gap-2">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-4">
-              <p className="text-xs font-semibold text-zinc-200">执行信息</p>
+        <div className="fixed right-gr-3 top-[100px] z-40 w-[200px] glass-card p-gr-3 flex flex-col gap-gr-2">
+          <div className="flex items-center justify-between gap-gr-2">
+            <div className="flex items-center gap-gr-2">
+              <p className="text-xs font-black text-foreground uppercase tracking-widest">执行信息</p>
               {automationFeedback.ocrMatched !== null && (
                 <span
-                  className={`w-2 h-2 rounded-full ${
+                  className={`w-2 h-2 rounded-full shadow-sm ${
                     automationFeedback.ocrMatched
-                      ? "bg-emerald-400"
-                      : "bg-red-400"
+                      ? "bg-emerald-400 shadow-emerald-400/50"
+                      : "bg-red-400 shadow-red-400/50"
                   }`}
                 ></span>
               )}
@@ -349,22 +349,22 @@ const App: React.FC = () => {
             />
           </div>
 
-          <div className="space-y-2 text-[8px]">
-            <div className="flex items-center justify-between rounded-md bg-zinc-800/70 px-2 py-1.5 text-[12px]">
-              <span className="text-zinc-400">执行次数</span>
-              <span className="font-mono text-orange-300">
+          <div className="space-y-gr-2">
+            <div className="flex items-center justify-between rounded-gr-2 bg-white/5 px-gr-2 py-gr-1 text-[12px] border border-white/5">
+              <span className="text-zinc-500 font-medium">执行次数</span>
+              <span className="font-mono font-bold text-primary">
                 {automationFeedback.runCount}
               </span>
             </div>
-            <div className="rounded-md bg-zinc-800/50 px-2 py-1.5">
-              <span className="text-zinc-400">状态：</span>
-              <span className="text-zinc-200">
+            <div className="rounded-gr-2 bg-white/5 px-gr-2 py-gr-1 border border-white/5">
+              <span className="text-zinc-500 text-[10px] font-medium block uppercase tracking-tighter">状态</span>
+              <span className="text-foreground text-xs font-semibold">
                 {automationFeedback.lastStatus}
               </span>
             </div>
-            <div className="rounded-md bg-zinc-800/50 px-2 py-1.5">
-              <span className="text-zinc-400">OCR 结果：</span>
-              <span className="text-zinc-200">
+            <div className="rounded-gr-2 bg-white/5 px-gr-2 py-gr-1 border border-white/5">
+              <span className="text-zinc-500 text-[10px] font-medium block uppercase tracking-tighter">OCR 结果</span>
+              <span className="text-foreground text-xs font-semibold">
                 {automationFeedback.lastOcrText || "暂无"}
               </span>
             </div>

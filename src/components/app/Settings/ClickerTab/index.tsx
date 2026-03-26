@@ -22,8 +22,11 @@ export interface ClickerStep {
 
 interface AutomationKeyEvent {
   t: number;
-  type: "keydown" | "keyup";
-  key: string;
+  type: "keydown" | "keyup" | "mousedown" | "mouseup" | "mousemove";
+  key?: string;
+  button?: string;
+  x?: number;
+  y?: number;
 }
 
 const createStepId = (): string => {
@@ -53,13 +56,12 @@ export const ClickerTab: React.FC = () => {
     setIsPlatformSupported(isWindows());
   }, []);
 
-  // Show unsupported message on non-Windows platforms
   if (!isPlatformSupported) {
     return (
-      <div className="space-y-6">
-        <section className="bg-zinc-800/30 p-6 rounded-2xl border border-zinc-800/50">
-          <div className="flex flex-col items-center justify-center py-8 text-center">
-            <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center mb-4">
+      <div className="space-y-gr-4">
+        <section className="glass p-gr-4 rounded-gr-4">
+          <div className="flex flex-col items-center justify-center py-gr-5 text-center">
+            <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-gr-3">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 width="32"
@@ -77,10 +79,10 @@ export const ClickerTab: React.FC = () => {
                 <line x1="15" x2="9" y1="9" y2="15" />
               </svg>
             </div>
-            <h3 className="text-lg font-medium text-zinc-300 mb-2">
+            <h3 className="text-lg font-black text-foreground mb-gr-1 uppercase tracking-tighter">
               此功能仅支持 Windows
             </h3>
-            <p className="text-sm text-zinc-500 max-w-md">
+            <p className="text-sm text-zinc-500 max-w-md font-medium">
               连点器功能依赖 AutoHotkey，目前仅在 Windows 平台上可用。
             </p>
           </div>
@@ -277,8 +279,8 @@ export const ClickerTab: React.FC = () => {
     field: "key" | "intervalMs",
     value: string | number,
   ) => {
-    setSteps(
-      steps.map((s) => {
+    setSteps((prev) =>
+      prev.map((s) => {
         if (s.id === id) {
           return { ...s, [field]: value };
         }
@@ -306,15 +308,29 @@ export const ClickerTab: React.FC = () => {
   };
 
   const handleSaveConfig = async () => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     setStatusMessage("正在保存配置...");
     let currentT = 0;
     const events: AutomationKeyEvent[] = [];
     for (const step of steps) {
-      const upperKey = step.key.toUpperCase();
+      const isMouseButton = ["LButton", "RButton", "MButton", "XButton1", "XButton2"].includes(step.key);
+      const isGamepad = /^\d+Joy/.test(step.key);
+      const keyToSend = (isMouseButton || isGamepad) ? step.key : step.key.toUpperCase();
+      
       currentT += step.intervalMs;
-      events.push({ t: currentT, type: "keydown", key: upperKey });
-      currentT += 10;
-      events.push({ t: currentT, type: "keyup", key: upperKey });
+      
+      if (isMouseButton) {
+        const button = step.key.toLowerCase().replace("button", "");
+        events.push({ t: currentT, type: "mousedown", button });
+        currentT += 10;
+        events.push({ t: currentT, type: "mouseup", button });
+      } else {
+        events.push({ t: currentT, type: "keydown", key: keyToSend });
+        currentT += 10;
+        events.push({ t: currentT, type: "keyup", key: keyToSend });
+      }
     }
     await window.electron.automation.saveScript("_clicker_temp", events);
     await window.electron.automation.saveConfig("_clicker_temp", {
@@ -328,6 +344,9 @@ export const ClickerTab: React.FC = () => {
   };
 
   const generateEventsAndPlay = async () => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     if (steps.length === 0) {
       setStatusMessage("❌ 请至少添加一个按键");
       return;
@@ -341,24 +360,43 @@ export const ClickerTab: React.FC = () => {
     const events: AutomationKeyEvent[] = [];
 
     for (const step of steps) {
-      const upperKey = step.key.toUpperCase();
+      const isMouseButton = ["LButton", "RButton", "MButton", "XButton1", "XButton2"].includes(step.key);
+      const isGamepad = /^\d+Joy/.test(step.key);
+      const keyToSend = (isMouseButton || isGamepad) ? step.key : step.key.toUpperCase();
 
-      // Delay before keydown
+      // Delay before action
       currentT += step.intervalMs;
 
-      events.push({
-        t: currentT,
-        type: "keydown",
-        key: upperKey,
-      });
+      if (isMouseButton) {
+        const button = step.key.toLowerCase().replace("button", ""); // "left", "right", etc.
+        events.push({
+          t: currentT,
+          type: "mousedown",
+          button: button,
+        });
 
-      // Quick keyup (e.g. 10ms later)
-      currentT += 10;
-      events.push({
-        t: currentT,
-        type: "keyup",
-        key: upperKey,
-      });
+        // Quick release
+        currentT += 10;
+        events.push({
+          t: currentT,
+          type: "mouseup",
+          button: button,
+        });
+      } else {
+        events.push({
+          t: currentT,
+          type: "keydown",
+          key: keyToSend,
+        });
+
+        // Quick keyup (e.g. 10ms later)
+        currentT += 10;
+        events.push({
+          t: currentT,
+          type: "keyup",
+          key: keyToSend,
+        });
+      }
     }
 
     // Save script
@@ -380,36 +418,36 @@ export const ClickerTab: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <section className="bg-zinc-800/30 p-6 rounded-2xl border border-zinc-800/50">
-        <div className="flex justify-between items-center mb-4">
-          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">
+    <div className="space-y-gr-4">
+      <section className="glass p-gr-4 rounded-gr-4">
+        <div className="flex justify-between items-center mb-gr-3">
+          <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">
             按键序列设置
           </label>
           <Button
             onClick={handleAddStep}
             variant="secondary"
             disabled={isPlaying}
-            className="h-8 px-3 py-1 flex items-center text-xs"
+            className="h-8 px-gr-3 py-1 flex items-center text-[10px] font-black uppercase tracking-tighter"
           >
-            <Plus size={14} className="mr-1" />
+            <Plus size={14} className="mr-gr-1" />
             添加按键
           </Button>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-gr-2">
           {steps.map((step, index) => (
             <div
               key={step.id}
-              className="flex items-center gap-3 bg-zinc-900/50 p-3 rounded-xl border border-zinc-700/50"
+              className="flex items-center gap-gr-3 bg-white/5 p-gr-3 rounded-gr-3 border border-white/5"
             >
-              <div className="flex-shrink-0 text-zinc-500 font-mono text-xs w-6 text-center">
+              <div className="flex-shrink-0 text-zinc-500 font-mono text-[10px] w-6 text-center font-black">
                 #{index + 1}
               </div>
 
-              <div className="flex-1 flex gap-3 max-md:flex-col">
-                <div className="flex-1 flex items-center gap-2 relative">
-                  <span className="text-xs text-zinc-400">按键</span>
+              <div className="flex-1 flex gap-gr-3 max-md:flex-col">
+                <div className="flex-1 flex items-center gap-gr-2 relative">
+                  <span className="text-[10px] text-zinc-500 font-black uppercase tracking-tighter">按键</span>
                   
                   <div className="relative">
                     <button
@@ -424,10 +462,10 @@ export const ClickerTab: React.FC = () => {
                         }
                       }}
                       onClick={() => !isPlaying && setRecordingIndex({ id: step.id })}
-                      className={`min-w-[72px] h-8 border rounded-md px-3 flex items-center justify-center text-sm font-mono transition-colors disabled:opacity-50 ${
+                      className={`min-w-[72px] h-gr-4 border rounded-gr-1 px-gr-3 flex items-center justify-center text-[10px] font-mono transition-all disabled:opacity-50 uppercase tracking-tighter font-black shadow-lg ${
                         recordingIndex?.id === step.id
-                          ? "border-orange-500 bg-orange-500/5 text-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.1)]"
-                          : "bg-zinc-800 border-zinc-600 hover:border-orange-500 text-orange-400"
+                          ? "border-primary bg-primary/10 text-primary shadow-[0_0_15px_rgba(var(--primary),0.1)]"
+                          : "bg-white/5 border-border hover:border-primary text-primary"
                       }`}
                     >
                       {recordingIndex?.id === step.id ? "请按键..." : (formatKeyDisplay(step.key) || "选择")}
@@ -447,8 +485,8 @@ export const ClickerTab: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex-1 flex items-center gap-2">
-                  <span className="text-xs text-zinc-400">延时 (ms)</span>
+                <div className="flex-1 flex items-center gap-gr-2">
+                  <span className="text-[10px] text-zinc-500 font-black uppercase tracking-tighter">延时 (ms)</span>
                   <input
                     type="number"
                     min="0"
@@ -461,12 +499,12 @@ export const ClickerTab: React.FC = () => {
                         parseInt(e.target.value) || 0,
                       )
                     }
-                    className="w-24 bg-zinc-800 border-zinc-600 rounded-md px-2 py-1.5 text-sm font-mono text-zinc-200 focus:outline-none focus:border-orange-500 disabled:opacity-50"
+                    className="w-24 bg-white/5 border border-border rounded-gr-1 px-gr-2 py-gr-1 text-[10px] font-mono text-zinc-200 focus:outline-none focus:border-primary transition-all disabled:opacity-50 font-black"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-gr-1">
                 <IconButton
                   icon={<ArrowUp size={14} />}
                   onClick={() => handleMoveStep(index, "up")}
@@ -479,7 +517,7 @@ export const ClickerTab: React.FC = () => {
                   disabled={isPlaying || index === steps.length - 1}
                   title="下移"
                 />
-                <div className="w-px h-4 bg-zinc-700 mx-1"></div>
+                <div className="w-px h-4 bg-white/10 mx-gr-1"></div>
                 <IconButton
                   icon={<Trash2 size={14} />}
                   onClick={() => handleRemoveStep(step.id)}
@@ -491,21 +529,21 @@ export const ClickerTab: React.FC = () => {
             </div>
           ))}
           {steps.length === 0 && (
-            <p className="text-sm text-zinc-600 italic text-center py-4">
+            <p className="text-sm text-zinc-600 italic text-center py-gr-3">
               请添加按键
             </p>
           )}
         </div>
       </section>
 
-      <section className="bg-zinc-800/30 p-6 rounded-2xl border border-zinc-800/50">
-        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4">
+      <section className="glass p-gr-4 rounded-gr-4">
+        <label className="block text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-gr-3">
           运行设置
         </label>
 
-        <div className="flex items-center gap-4 mb-6">
+        <div className="flex items-center gap-gr-3 mb-gr-4">
           <div className="flex-1">
-            <label className="text-xs text-zinc-400 block mb-2">
+            <label className="text-[10px] font-black text-zinc-500 uppercase tracking-tighter block mb-gr-2">
               循环次数 (0 为无限循环)
             </label>
             <input
@@ -514,31 +552,31 @@ export const ClickerTab: React.FC = () => {
               value={loopCount}
               onChange={(e) => setLoopCount(parseInt(e.target.value, 10) || 0)}
               disabled={isPlaying}
-              className="w-full max-w-[200px] bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-orange-500 transition-colors disabled:opacity-50"
+              className="w-full max-w-[200px] bg-white/5 border border-border rounded-gr-2 px-gr-3 py-gr-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-primary transition-all disabled:opacity-50"
             />
           </div>
         </div>
 
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-gr-3">
             {!isPlaying ? (
               <>
                 <Button
                   onClick={generateEventsAndPlay}
                   variant="primary"
-                  className="flex items-center px-6"
+                  className="flex items-center px-gr-4"
                   disabled={steps.length === 0}
                 >
-                  <Play size={16} className="mr-2" />
+                  <Play size={16} className="mr-gr-2" />
                   启动连点器
                 </Button>
                 <Button
                   onClick={handleSaveConfig}
                   variant="secondary"
-                  className="flex items-center px-6"
+                  className="flex items-center px-gr-4"
                   disabled={steps.length === 0}
                 >
-                  <Save size={16} className="mr-2" />
+                  <Save size={16} className="mr-gr-2" />
                   保存配置
                 </Button>
               </>
@@ -546,9 +584,9 @@ export const ClickerTab: React.FC = () => {
               <Button
                 onClick={handleStop}
                 variant="danger"
-                className="flex items-center px-6"
+                className="flex items-center px-gr-4"
               >
-                <Square size={16} className="mr-2" />
+                <Square size={16} className="mr-gr-2" />
                 停止运行 (F10)
               </Button>
             )}
@@ -556,9 +594,9 @@ export const ClickerTab: React.FC = () => {
 
           <div className="text-sm text-zinc-400">
             {statusMessage && (
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-gr-2 uppercase tracking-tighter font-black text-[10px]">
                 {isPlaying && (
-                  <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                  <span className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_rgba(var(--primary),0.5)]"></span>
                 )}
                 {statusMessage}
               </span>
@@ -568,11 +606,11 @@ export const ClickerTab: React.FC = () => {
       </section>
 
       {/* Usage Tips */}
-      <div className="bg-zinc-800/20 rounded-xl p-4 border border-zinc-800/30">
-        <p className="text-[10px] text-zinc-500 leading-relaxed">
-          <span className="text-zinc-400 font-medium">提示：</span>{" "}
+      <div className="glass p-gr-3 rounded-gr-3 border border-white/5">
+        <p className="text-[10px] text-zinc-500 leading-relaxed font-medium">
+          <span className="text-zinc-400 font-black uppercase tracking-widest mr-gr-1 shadow-primary/10">提示：</span>{" "}
           延时表示在按下该键之前等待的时间。可以通过调整延时来控制点击频率。运行过程中随时可按{" "}
-          <span className="text-orange-400">F10</span> 停止。
+          <span className="text-primary font-bold">F10</span> 停止。
         </p>
       </div>
     </div>

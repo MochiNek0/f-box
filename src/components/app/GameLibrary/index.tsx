@@ -86,14 +86,14 @@ export const GameLibrary: React.FC = () => {
   const allGames = [...DEFAULT_GAMES, ...customGames];
 
   return (
-    <div className="p-8 bg-zinc-950 flex-grow overflow-y-auto">
-      <div className="mb-8 flex items-center justify-between max-md:flex-col max-md:items-start max-md:gap-4">
+    <div className="p-gr-5 bg-background flex-grow overflow-y-auto no-scrollbar">
+      <div className="mb-gr-5 flex items-center justify-between max-md:flex-row max-md:items-center max-md:gap-gr-3">
         <div>
-          <h1 className="text-3xl font-bold text-zinc-100 flex items-center gap-3">
-            <ShieldCheck className="text-orange-500" size={32} />
+          <h1 className="text-2xl font-black text-foreground flex items-center gap-gr-3 tracking-tight">
+            <ShieldCheck className="text-primary" size={28} strokeWidth={3} />
             游戏库
           </h1>
-          <p className="text-zinc-500 mt-1">点击卡片即可启动 Flash 游戏</p>
+          <p className="text-zinc-500 mt-1 text-sm font-medium">点击卡片即可启动 Flash 游戏</p>
         </div>
         <Button
           onClick={() => setShowAddForm(true)}
@@ -105,38 +105,39 @@ export const GameLibrary: React.FC = () => {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {allGames.map((game) => (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-gr-4">
+        {allGames.map((game, index) => (
           <div
             key={game.id}
             onClick={() => loadGame(activeTabId, game.name, game.url)}
-            className="group relative bg-zinc-900 border border-zinc-800 rounded-2xl p-6 hover:border-orange-500/50 hover:bg-zinc-800/80 transition-all cursor-pointer overflow-hidden shadow-lg max-md:p-2"
+            className="group relative glass-card p-gr-4 card-hover-effect cursor-pointer overflow-hidden shadow-2xl animate-fade-in-up"
+            style={{ animationDelay: `${index * 50}ms`, opacity: 0 }}
           >
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-zinc-800 rounded-xl flex items-center justify-center border border-zinc-700 group-hover:bg-orange-500/10 transition-colors">
+            <div className="flex items-center gap-gr-3">
+              <div className="w-gr-5 h-gr-5 bg-white/[0.03] rounded-gr-3 flex items-center justify-center border border-white/5 group-hover:bg-primary/10 group-hover:border-primary/20 transition-all duration-500">
                 {game.icon ? (
                   <img
                     src={game.icon}
                     alt={game.name}
-                    className="w-6 h-6"
+                    className="w-6 h-6 grayscale group-hover:grayscale-0 transition-all"
                     onError={(e) => (e.currentTarget.style.display = "none")}
                   />
                 ) : (
                   <ExternalLink
-                    className="text-zinc-500 group-hover:text-orange-500"
+                    className="text-zinc-600 group-hover:text-primary transition-colors"
                     size={20}
                   />
                 )}
               </div>
               <div className="flex-grow min-w-0">
-                <h3 className="font-semibold text-zinc-200 truncate">
+                <h3 className="font-black text-foreground truncate group-hover:text-primary transition-all duration-300 uppercase tracking-tighter">
                   {game.name}
                 </h3>
-                <p className="text-xs text-zinc-500 truncate">
+                <p className="text-[10px] text-zinc-500 truncate font-black uppercase tracking-widest opacity-40 group-hover:opacity-100 transition-opacity">
                   {new URL(game.url).hostname}
                 </p>
               </div>
-              <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">
                 {game.id.startsWith("custom-") && (
                   <IconButton
                     icon={<Trash2 size={16} />}
@@ -148,8 +149,8 @@ export const GameLibrary: React.FC = () => {
             </div>
 
             {/* Glossy overlay effect */}
-            <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-100 transition-all transform translate-x-2 -translate-y-2 group-hover:translate-x-0 group-hover:translate-y-0">
-              <div className="bg-orange-500 w-12 h-12 rounded-full blur-2xl" />
+            <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-20 transition-all transform translate-x-4 -translate-y-4 group-hover:translate-x-0 group-hover:translate-y-0 duration-700">
+              <div className="bg-primary w-gr-7 h-gr-7 rounded-full blur-3xl" />
             </div>
           </div>
         ))}

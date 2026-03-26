@@ -14,19 +14,19 @@ export const IconButton: React.FC<IconButtonProps> = ({
   ...props
 }) => {
   const baseStyles =
-    "rounded-md transition-all outline-none flex items-center justify-center";
+    "rounded-gr-1 transition-all outline-none flex items-center justify-center smooth-transition";
 
   const variantStyles = {
-    default: "bg-transparent hover:bg-zinc-800 text-zinc-400 hover:text-white",
+    default: "bg-transparent hover:bg-white/10 text-zinc-400 hover:text-foreground",
     danger:
-      "bg-transparent hover:bg-red-500/20 text-zinc-500 hover:text-red-400",
-    primary: "bg-orange-500 text-white hover:bg-orange-600",
+      "bg-transparent hover:bg-red-500/10 text-zinc-500 hover:text-red-400",
+    primary: "premium-gradient text-white hover:opacity-90 shadow-lg shadow-primary/20",
   };
 
   const sizeStyles = {
-    sm: "p-0.5",
-    md: "p-1.5",
-    lg: "p-2",
+    sm: "p-gr-1",
+    md: "p-gr-2",
+    lg: "p-gr-3",
   };
 
   return (

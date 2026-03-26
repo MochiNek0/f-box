@@ -3,8 +3,31 @@
 @tailwind utilities;
 
 :root {
-  --background: 240 10% 3.9%;
+  --background: 240 10% 2%; /* Deeper, richer dark background */
   --foreground: 0 0% 98%;
+  --card: 240 10% 4%; /* More subtle contrast for cards */
+  --card-foreground: 0 0% 98%;
+  --primary: 262 83% 58%; /* Stay with the nice purple */
+  --accent: 191 91% 37%;
+  --accent-foreground: 210 20% 98%;
+  --border: 240 5% 12%; /* More subtle borders */
+}
+
+.glass {
+  @apply bg-background/60 backdrop-blur-xl border border-white/5;
+}
+
+.glass-card {
+  @apply bg-white/[0.03] backdrop-blur-md border border-white/10 rounded-gr-4 shadow-2xl;
+}
+
+.premium-gradient {
+  background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%);
+  box-shadow: 0 4px 15px -5px hsl(var(--primary) / 0.5);
+}
+
+.smooth-transition {
+  @apply transition-all duration-300 ease-in-out;
 }
 
 * {
@@ -47,7 +70,7 @@ body {
 
 /* Custom Scrollbar for Library */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -55,10 +78,48 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #27272a;
+  background: white/5;
   border-radius: 10px;
+  border: 4px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: #3f3f46;
+}
+
+/* Premium Slider styling */
+input[type="range"].premium-slider {
+  @apply appearance-none bg-zinc-800/50 rounded-full h-1.5 border border-white/5;
+}
+
+input[type="range"].premium-slider::-webkit-slider-thumb {
+  @apply appearance-none w-3.5 h-3.5 bg-primary rounded-full cursor-pointer shadow-[0_0_10px_rgba(var(--primary),0.5)] transition-all border-2 border-zinc-900;
+}
+
+input[type="range"].premium-slider::-moz-range-thumb {
+  @apply w-3.5 h-3.5 bg-primary rounded-full cursor-pointer shadow-[0_0_10px_rgba(var(--primary),0.5)] transition-all border-2 border-zinc-900;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.5s ease-out forwards;
+}
+
+.card-hover-effect {
+  @apply transition-all duration-500 ease-out;
+}
+
+.card-hover-effect:hover {
+  @apply -translate-y-2 shadow-[0_20px_40px_-15px_rgba(0,0,0,0.5)] border-primary/30 bg-white/[0.06];
 }

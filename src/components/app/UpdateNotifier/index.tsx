@@ -127,36 +127,36 @@ export const UpdateNotifier: React.FC = () => {
   if (!isVisible || !updateInfo) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 bg-zinc-800 border border-zinc-700 shadow-xl rounded-lg p-4 flex flex-col gap-3 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 w-80 text-zinc-100">
+    <div className="fixed bottom-gr-4 right-gr-4 glass border border-white/10 shadow-2xl rounded-gr-3 p-gr-4 flex flex-col gap-gr-3 z-[100] animate-in slide-in-from-bottom-5 fade-in duration-300 w-80 text-foreground">
       <div className="flex justify-between items-start">
-        <h3 className="font-semibold text-sm">发现新版本</h3>
+        <h3 className="font-black text-[10px] uppercase tracking-widest text-zinc-500">发现新版本</h3>
         {!isDownloading && !downloaded && (
           <button
             onClick={() => setIsVisible(false)}
-            className="text-zinc-400 hover:text-white transition-colors p-1 -mr-1 -mt-1 rounded focus:outline-none"
+            className="text-zinc-600 hover:text-foreground transition-colors p-1 -mr-1 -mt-1 rounded focus:outline-none"
           >
             <X size={16} />
           </button>
         )}
       </div>
 
-      <p className="text-[13px] text-zinc-300 leading-relaxed">
+      <p className="text-sm font-medium leading-relaxed">
         F-Box{" "}
-        <span className="font-mono bg-zinc-700/50 px-1 py-0.5 rounded text-zinc-200">
+        <span className="font-black text-primary px-1">
           {updateInfo.version}
         </span>{" "}
         现已发布。下载完成后将打开下载目录，请手动解压并替换当前版本。
       </p>
 
       {isDownloading && (
-        <div className="space-y-2">
-          <div className="flex justify-between text-[11px] text-zinc-400">
+        <div className="space-y-gr-2">
+          <div className="flex justify-between text-[10px] font-black text-zinc-500 uppercase tracking-tighter">
             <span>正在下载...</span>
             <span>{downloadProgress}%</span>
           </div>
-          <div className="h-1.5 w-full bg-zinc-700 rounded-full overflow-hidden">
+          <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden border border-white/5">
             <div
-              className="h-full bg-orange-500 transition-all duration-300"
+              className="h-full bg-primary transition-all duration-300 shadow-[0_0_10px_rgba(var(--primary),0.5)]"
               style={{ width: `${downloadProgress}%` }}
             />
           </div>
@@ -164,37 +164,37 @@ export const UpdateNotifier: React.FC = () => {
       )}
 
       {downloaded && (
-        <div className="flex items-center gap-2 text-[13px] text-green-400 bg-green-900/20 px-3 py-2 rounded">
+        <div className="flex items-center gap-gr-2 text-xs font-black uppercase tracking-tighter text-emerald-400 bg-emerald-500/10 px-gr-3 py-gr-2 rounded-gr-2 border border-emerald-500/20">
           <FolderOpen size={16} />
           <span>已打开下载目录，请手动解压替换</span>
         </div>
       )}
 
-      {error && <p className="text-[11px] text-red-400 mt-1">{error}</p>}
+      {error && <p className="text-[10px] font-bold text-red-400 mt-1 uppercase">{error}</p>}
 
       {!isDownloading && !downloaded && (
-        <div className="flex justify-end gap-2 mt-1">
+        <div className="flex justify-end gap-gr-2 mt-gr-1">
           <button
             onClick={() => setIsVisible(false)}
-            className="px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-700/50 rounded transition-colors"
+            className="px-gr-3 py-gr-2 text-[10px] font-black text-zinc-500 hover:text-foreground uppercase tracking-widest transition-colors"
           >
             稍后
           </button>
           <button
             onClick={handleDownload}
-            className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-orange-600 hover:bg-orange-500 text-white rounded shadow-sm transition-all hover:shadow focus:ring-2 focus:ring-orange-500/50 outline-none"
+            className="flex items-center justify-center gap-gr-2 px-gr-4 py-gr-2 text-[10px] font-black bg-primary text-black rounded-gr-2 shadow-lg transition-all uppercase tracking-tighter"
           >
-            <Download size={13} />
+            <Download size={13} strokeWidth={3} />
             <span>下载更新</span>
           </button>
         </div>
       )}
 
       {downloaded && (
-        <div className="flex justify-end mt-1">
+        <div className="flex justify-end mt-gr-1">
           <button
             onClick={() => setIsVisible(false)}
-            className="px-3 py-1.5 text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-700/50 rounded transition-colors"
+            className="px-gr-3 py-gr-2 text-[10px] font-black text-zinc-500 hover:text-foreground uppercase tracking-widest transition-colors"
           >
             关闭
           </button>

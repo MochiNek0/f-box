@@ -12,45 +12,45 @@ export const FlashTutorial: React.FC = () => {
 
   return (
     <>
-      <div className="flex flex-col items-center justify-center min-h-screen bg-zinc-950 text-zinc-100 p-8">
-        <div className="max-w-2xl w-full bg-zinc-900 border border-zinc-800 rounded-2xl p-8 shadow-2xl flex flex-col gap-6 max-md:gap-4">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-red-500/10 rounded-xl max-md:hidden">
+      <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground p-gr-5">
+        <div className="max-w-2xl w-full glass-card p-gr-5 flex flex-col gap-gr-4 shadow-2xl">
+          <div className="flex items-center gap-gr-3">
+            <div className="p-gr-3 bg-red-500/10 rounded-gr-3 max-md:hidden border border-red-500/20">
               <AlertCircle className="text-red-500" size={32} />
             </div>
             <div>
-              <h1 className="text-2xl font-bold">未检测到 Flash 插件</h1>
-              <p className="text-zinc-500">
+              <h1 className="text-2xl font-black uppercase tracking-tighter">未检测到 Flash 插件</h1>
+              <p className="text-zinc-500 text-sm font-medium">
                 本应用需要 Pepper Flash (PPAPI) 插件才能运行游戏。
               </p>
             </div>
           </div>
 
-          <div className="flex flex-col gap-6 max-md:gap-4">
-            <div className="bg-zinc-800/50 rounded-xl p-4 border border-zinc-700">
-              <h2 className="text-sm font-semibold text-zinc-300 mb-2 uppercase tracking-wider">
+          <div className="flex flex-col gap-gr-5">
+            <div className="bg-white/5 rounded-gr-4 p-gr-4 border border-white/10">
+              <h2 className="text-[10px] font-black text-zinc-400 mb-gr-3 uppercase tracking-widest border-b border-white/5 pb-gr-1">
                 安装步骤
               </h2>
-              <ol className="list-decimal list-inside space-y-3 text-zinc-400 text-sm">
+              <ol className="list-decimal list-inside space-y-gr-2 text-zinc-400 text-sm font-medium">
                 <li>
                   点击下方按钮前往下载{" "}
-                  <span className="text-orange-500 font-medium">
+                  <span className="text-primary font-bold">
                     Flash Player
                   </span>{" "}
                   官方插件。
                 </li>
                 <li>
                   下载并安装{" "}
-                  <code className="bg-zinc-700 px-1.5 py-0.5 rounded text-zinc-200">
+                  <code className="bg-white/10 px-1.5 py-0.5 rounded-gr-1 text-primary-foreground font-mono">
                     PPAPI
                   </code>{" "}
                   版本的 Flash Player。
                 </li>
-                <li>安装完成后,请彻底关闭并重启本应用。</li>
+                <li>安装完成后, 请彻底关闭并重启本应用。</li>
               </ol>
             </div>
 
-            <div className="flex gap-4 max-md:flex-col">
+            <div className="flex gap-gr-3 max-md:flex-col">
               <Button
                 onClick={() =>
                   window.electron.openExternal(
@@ -59,7 +59,8 @@ export const FlashTutorial: React.FC = () => {
                 }
                 variant="primary"
                 fullWidth
-                className="flex items-center justify-center gap-2"
+                size="lg"
+                className="flex items-center justify-center gap-gr-2"
               >
                 <Download size={18} />
                 <span>下载 Flash 插件 (PPAPI)</span>
@@ -68,16 +69,17 @@ export const FlashTutorial: React.FC = () => {
                 onClick={() => setShowModal(true)}
                 variant="secondary"
                 fullWidth
-                className="flex items-center justify-center gap-2"
+                size="lg"
+                className="flex items-center justify-center gap-gr-2"
               >
                 <ExternalLink size={18} />
                 <span>查看详细教程</span>
               </Button>
             </div>
 
-            <div className="pt-4 border-t border-zinc-800">
-              <p className="text-[10px] text-zinc-600 text-center">
-                注:Flash Player 已停止支持,请确保从信任的来源获取插件。
+            <div className="pt-gr-3 border-t border-border">
+              <p className="text-[10px] text-zinc-600 text-center font-medium">
+                注: Flash Player 已停止支持, 请确保从信任的来源获取插件。
               </p>
             </div>
           </div>

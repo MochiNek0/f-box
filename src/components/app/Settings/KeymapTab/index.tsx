@@ -13,12 +13,11 @@ export const KeymapTab: React.FC = () => {
     setIsPlatformSupported(isWindows());
   }, []);
 
-  // Show unsupported message on non-Windows platforms
   if (!isPlatformSupported) {
     return (
-      <section className="bg-zinc-800/30 p-6 rounded-2xl border border-zinc-800/50">
-        <div className="flex flex-col items-center justify-center py-8 text-center">
-          <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center mb-4">
+      <section className="glass p-gr-4 rounded-gr-4">
+        <div className="flex flex-col items-center justify-center py-gr-5 text-center">
+          <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-gr-3">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="32"
@@ -36,10 +35,10 @@ export const KeymapTab: React.FC = () => {
               <line x1="15" x2="9" y1="9" y2="15" />
             </svg>
           </div>
-          <h3 className="text-lg font-medium text-zinc-300 mb-2">
+          <h3 className="text-lg font-black text-foreground mb-gr-1 uppercase tracking-tighter">
             此功能仅支持 Windows
           </h3>
-          <p className="text-sm text-zinc-500 max-w-md">
+          <p className="text-sm text-zinc-500 max-w-md font-medium">
             键位映射功能依赖 AutoHotkey，目前仅在 Windows 平台上可用。
           </p>
         </div>
@@ -185,39 +184,14 @@ export const KeymapTab: React.FC = () => {
       const gamepadNumber = gamepadIdx + 1;
 
       // Check buttons
-      // Standard Mapping (approximate for XInput/W3C Standard Gamepad)
-      // 0:A, 1:B, 2:X, 3:Y, 4:LB, 5:RB, 6:LT, 7:RT, 8:Back, 9:Start, 10:LS, 11:RS, 12:Up, 13:Down, 14:Left, 15:Right
       const buttonNames = [
-        "A",
-        "B",
-        "X",
-        "Y",
-        "LB",
-        "RB",
-        "LT",
-        "RT",
-        "BACK",
-        "START",
-        "LS",
-        "RS",
-        "DPAD_UP",
-        "DPAD_DOWN",
-        "DPAD_LEFT",
-        "DPAD_RIGHT",
+        "A", "B", "X", "Y", "LB", "RB", "LT", "RT", "BACK", "START", "LS", "RS", "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT",
       ];
 
       for (let i = 0; i < gamepad.buttons.length; i++) {
         const button = gamepad.buttons[i];
         if (button.pressed || button.value > 0.5) {
-          let keyName = "";
-
-          if (i < buttonNames.length) {
-            keyName = buttonNames[i];
-          } else {
-            keyName = `${i + 1}`; // Fallback to raw index if out of standard range
-          }
-
-          // Format: 1JoyA, 1JoyDPAD_UP, etc.
+          let keyName = i < buttonNames.length ? buttonNames[i] : `${i + 1}`;
           const key = `${gamepadNumber}Joy${keyName}`;
 
           const newMappings = [...keymapConfig.mappings];
@@ -225,71 +199,33 @@ export const KeymapTab: React.FC = () => {
 
           setKeymapConfig({ ...keymapConfig, mappings: newMappings });
           setRecordingIndex(null);
-          return; // Stop polling once found
+          return;
         }
       }
 
-      // Check axes (joystick movements)
-      // Axes mapping: [0]=LeftX, [1]=LeftY, [2]=RightX, [3]=RightY
+      // Check axes
       const axisNames = ["LX", "LY", "RX", "RY"];
-
       for (let i = 0; i < Math.min(gamepad.axes.length, 4); i++) {
         const axisValue = gamepad.axes[i];
-        // Detect significant movement (threshold 0.5)
         if (Math.abs(axisValue) > 0.5) {
-          // Determine direction: positive (+) or negative (-)
-          // For Standard Gamepad:
-          // Axis 1 (LY) & 3 (RY): -1 is Up, +1 is Down.
-          // Axis 0 (LX) & 2 (RX): -1 is Left, +1 is Right.
-
           let direction = "";
           const axisName = axisNames[i];
 
-          // Reverse Y axis logic because AHK script expects:
-          // LY+ -> Physical Up (AHK) vs Web Standard Down (+)
-          // LY- -> Physical Down (AHK) vs Web Standard Up (-)
-          // Wait, checking AHK script again:
-          // case "LY+": return state.sThumbLY > 16000  ; XInput中 Y+ 是物理向上
-          // case "LY-": return state.sThumbLY < -16000 ; XInput中 Y- 是物理向下
-          //
-          // Web Gamepad API:
-          // Axis 1: -1 (Up), 1 (Down)
-          //
-          // So if Web Axis is < -0.5 (Up), we want to map to "LY+" for AHK?
-          // If Web Axis is > 0.5 (Down), we want to map to "LY-" for AHK?
-          // Let's re-read the AHK script carefully.
-          //
-          // Line 218: case "LY+": return state.sThumbLY > 16000  ; XInput中 Y+ 是物理向上
-          // Line 219: case "LY-": return state.sThumbLY < -16000 ; XInput中 Y- 是物理向下
-          //
-          // So "LY+" in AHK means Stick Up.
-          // In Web API, Stick Up is negative (-1).
-          // So if axisValue < -0.5, we should produce "LY+".
-
           if (i === 1 || i === 3) {
-            // Y axes
-            if (axisValue < -0.5)
-              direction = "+"; // Up
-            else direction = "-"; // Down
+            if (axisValue < -0.5) direction = "+";
+            else direction = "-";
           } else {
-            // X axes (Standard: -1 Left, +1 Right)
-            // AHK:
-            // case "LX+": return state.sThumbLX > 16000 (Right)
-            // case "LX-": return state.sThumbLX < -16000 (Left)
-            if (axisValue > 0.5)
-              direction = "+"; // Right
-            else direction = "-"; // Left
+            if (axisValue > 0.5) direction = "+";
+            else direction = "-";
           }
 
-          // Format: 1JoyLX+, 1JoyLX-, etc.
           const key = `${gamepadNumber}Joy${axisName}${direction}`;
-
           const newMappings = [...keymapConfig.mappings];
           newMappings[recordingIndex.index][recordingIndex.type] = key;
 
           setKeymapConfig({ ...keymapConfig, mappings: newMappings });
           setRecordingIndex(null);
-          return; // Stop polling once found
+          return;
         }
       }
     }
@@ -336,33 +272,34 @@ export const KeymapTab: React.FC = () => {
   };
 
   return (
-    <section className="bg-zinc-800/30 p-4 rounded-2xl border border-zinc-800/50 relative">
-      <div className="flex items-center justify-between mb-6">
-        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em]">
+    <section className="glass p-gr-4 rounded-gr-4 relative">
+      <div className="flex items-center justify-between mb-gr-4">
+        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">
           按键映射
         </label>
         <Button
           onClick={toggleEnabled}
-          variant="ghost"
-          size="sm"
-          className={`flex items-center gap-2 ${
+          variant="secondary"
+          className={`flex items-center gap-gr-2 transition-all duration-300 ${
             keymapConfig.enabled
-              ? "bg-green-500/10 text-green-500 border border-green-500/20"
-              : "bg-zinc-800 text-zinc-500 border border-zinc-700"
+              ? "text-primary border-primary bg-primary/10 shadow-[0_0_15px_rgba(var(--primary),0.1)]"
+              : "text-zinc-500 border-zinc-700 bg-zinc-800/10"
           }`}
         >
           <Power size={14} />
-          {keymapConfig.enabled ? "已启用" : "已禁用"}
+          <span className="text-[10px] font-black uppercase tracking-tighter">
+            {keymapConfig.enabled ? "已启用" : "已禁用"}
+          </span>
         </Button>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-gr-2">
         {keymapConfig.mappings.map((mapping, index) => (
           <div
             key={index}
-            className="flex gap-4 animate-in fade-in slide-in-from-top-2 duration-300"
+            className="flex gap-gr-3 animate-in fade-in slide-in-from-top-2 duration-300"
           >
-            <div className="flex items-center gap-2 w-full">
+            <div className="flex items-center gap-gr-2 w-full">
               {/* Source Key */}
               <div className="flex-1 flex flex-col gap-1">
                 <div
@@ -375,19 +312,17 @@ export const KeymapTab: React.FC = () => {
                     });
                   }}
                   onClick={() => setRecordingIndex({ index, type: "source" })}
-                  className={`cursor-pointer h-11 bg-zinc-900 border rounded-xl px-4 text-xs font-mono flex items-center justify-center transition-all relative group ${
+                  className={`cursor-pointer h-gr-5 bg-white/5 border rounded-gr-3 px-gr-4 text-[10px] font-mono flex items-center justify-center transition-all relative group font-black uppercase tracking-tighter ${
                     recordingIndex?.index === index &&
                     recordingIndex.type === "source"
-                      ? "border-orange-500 bg-orange-500/5 text-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.1)]"
-                      : "border-zinc-800 hover:border-zinc-700 text-zinc-300"
-                  } max-md:text-xs max-md:px-2 max-md:h-9`}
+                      ? "border-primary bg-primary/10 text-primary shadow-[0_0_15px_rgba(var(--primary),0.1)]"
+                      : "border-border hover:border-primary/50 text-foreground"
+                  } max-md:h-9 shadow-lg`}
                 >
                   {recordingIndex?.index === index &&
                   recordingIndex.type === "source"
                     ? "请按键..."
                     : formatKeyDisplay(mapping.source) || "点击录入 / 右键选择"}
-
-                  <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl pointer-events-none" />
 
                   {/* Source Key Selector Dropdown */}
                   {selectorState?.isOpen &&
@@ -403,8 +338,7 @@ export const KeymapTab: React.FC = () => {
               </div>
 
               <div className="text-zinc-600">
-                <ArrowRight className="max-md:hidden" size={16} />
-                <ArrowRight className="md:hidden" size={12} />
+                <ArrowRight size={16} className="opacity-30" />
               </div>
 
               {/* Target Key */}
@@ -419,19 +353,17 @@ export const KeymapTab: React.FC = () => {
                     });
                   }}
                   onClick={() => setRecordingIndex({ index, type: "target" })}
-                  className={`cursor-pointer h-11 bg-zinc-900 border rounded-xl px-4 text-xs font-mono flex items-center justify-center transition-all relative group ${
+                  className={`cursor-pointer h-gr-5 bg-white/5 border rounded-gr-3 px-gr-4 text-[10px] font-mono flex items-center justify-center transition-all relative group font-black uppercase tracking-tighter ${
                     recordingIndex?.index === index &&
                     recordingIndex.type === "target"
-                      ? "border-orange-500 bg-orange-500/5 text-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.1)]"
-                      : "border-zinc-800 hover:border-zinc-700 text-zinc-300"
-                  } max-md:text-xs max-md:px-2 max-md:h-9`}
+                      ? "border-primary bg-primary/10 text-primary shadow-[0_0_15px_rgba(var(--primary),0.1)]"
+                      : "border-border hover:border-primary/50 text-foreground"
+                  } max-md:h-9 shadow-lg`}
                 >
                   {recordingIndex?.index === index &&
                   recordingIndex.type === "target"
                     ? "请按键..."
                     : formatKeyDisplay(mapping.target) || "点击录入 / 右键选择"}
-
-                  <div className="absolute inset-0 bg-white/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl pointer-events-none" />
 
                   {/* Target Key Selector Dropdown */}
                   {selectorState?.isOpen &&
@@ -452,38 +384,37 @@ export const KeymapTab: React.FC = () => {
               onClick={() => removeMapping(index)}
               variant="danger"
               title="删除映射"
-              className="p-3 rounded-xl"
+              className="p-gr-3 rounded-gr-3"
             />
           </div>
         ))}
 
         <button
           onClick={addMapping}
-          className="w-full h-11 border-2 border-dashed border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/20 text-zinc-500 hover:text-zinc-400 rounded-xl flex items-center justify-center gap-2 transition-all group bg-transparent outline-none"
+          className="w-full h-gr-5 border-2 border-dashed border-white/5 hover:border-primary/30 hover:bg-primary/5 text-zinc-500 hover:text-primary rounded-gr-3 flex items-center justify-center gap-gr-2 transition-all group bg-transparent outline-none"
         >
           <Plus
             size={18}
             className="group-hover:scale-110 transition-transform"
           />
-          <span className="text-xs font-bold uppercase tracking-wider">
+          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 group-hover:text-primary">
             添加新映射
           </span>
         </button>
       </div>
 
       {keymapConfig.mappings.length > 0 && (
-        <div className="mt-6 pt-6 border-t border-zinc-800/50 flex justify-between items-center">
-          <p className="text-[10px] text-zinc-500 italic">
-            * 左键点击录入,右键点击选择
+        <div className="mt-gr-4 pt-gr-4 border-t border-white/5 flex justify-between items-center">
+          <p className="text-[10px] text-zinc-500 font-medium italic">
+            * 左键点击录入, 右键点击选择
           </p>
           <Button
             onClick={() => saveConfig()}
-            variant="ghost"
-            size="sm"
-            className="flex items-center gap-2 bg-zinc-100 text-zinc-900 hover:bg-white"
+            variant="primary"
+            className="flex items-center gap-gr-2 px-gr-4"
           >
             <Save size={14} />
-            <span className="max-md:hidden">保存设置</span>
+            <span className="text-[10px] font-black uppercase tracking-tighter">保存设置</span>
           </Button>
         </div>
       )}

@@ -94,39 +94,39 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
   return (
     <div className="flex flex-col h-full bg-zinc-950 overflow-hidden relative">
       {/* Toolbar */}
-      <div className="h-10 bg-zinc-900/80 backdrop-blur-md flex items-center justify-between px-2 md:px-4 border-b border-zinc-800 absolute top-0 left-0 right-0 z-10 transition-opacity">
-        <div className="flex items-center gap-2 md:gap-4 flex-shrink">
+      <div className="h-gr-5 flex items-center justify-between px-gr-4 border-b border-white/5 absolute top-0 left-0 right-0 z-10 transition-all duration-500 hover:opacity-100 opacity-90 overflow-hidden">
+        <div className="flex items-center gap-gr-4 flex-shrink">
           <IconButton
             icon={<ArrowLeft size={16} />}
             onClick={() => backToLibrary(id)}
             title="返回库"
-            className="flex items-center gap-2"
+            className="flex items-center gap-gr-2"
           />
-          <div className="h-4 w-px bg-zinc-800 hidden md:block" />
-          <div className="text-[10px] text-zinc-500 truncate max-w-[150px] md:max-w-[300px] hidden sm:block">
+          <div className="h-gr-3 w-px bg-white/10 hidden md:block" />
+          <div className="text-[10px] font-black text-zinc-500 truncate max-w-[150px] md:max-w-[300px] hidden sm:block uppercase tracking-widest">
             {url}
           </div>
           {pid && (
             <>
-              <div className="h-4 w-px bg-zinc-800 hidden md:block" />
+              <div className="h-gr-3 w-px bg-white/10 hidden md:block" />
               <div
-                className="text-[10px] text-emerald-400 font-mono hidden sm:flex items-center gap-1 cursor-help"
+                className="text-[10px] text-primary font-black hidden sm:flex items-center gap-gr-2 cursor-help uppercase tracking-tighter"
                 title="Flash Plugin Process ID (在 CE 中附加此进程以进行变速)"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_rgba(var(--primary),0.5)]" />
                 CE PID: {pid}
               </div>
             </>
           )}
         </div>
 
-        <div className="flex items-center gap-1 bg-zinc-800/50 p-1 rounded-lg flex-shrink-0">
+        <div className="flex items-center gap-gr-1 bg-white/5 p-gr-1 border border-white/5 flex-shrink-0">
           <IconButton
             icon={<ZoomOut size={16} />}
             onClick={() => handleZoom(-0.1)}
             title="缩小"
           />
-          <div className="w-8 md:w-12 text-center text-[10px] font-bold text-zinc-300">
+          <div className="w-12 text-center text-[10px] font-black text-foreground uppercase tracking-tighter">
             {Math.round(zoomFactor * 100)}%
           </div>
           <IconButton
@@ -134,6 +134,7 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
             onClick={() => handleZoom(0.1)}
             title="放大"
           />
+          <div className="w-px h-gr-3 bg-white/10 mx-gr-1" />
           <IconButton
             icon={<RefreshCw size={14} />}
             onClick={resetZoom}

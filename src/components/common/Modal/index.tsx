@@ -19,20 +19,22 @@ export const Modal: React.FC<ModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 z-50">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-gr-3 z-50">
       <div
-        className={`bg-zinc-900 border border-zinc-800 p-2 rounded-2xl w-full ${maxWidth} shadow-2xl overflow-auto relative`}
+        className={`glass-card p-0 w-full ${maxWidth} shadow-2xl overflow-auto relative smooth-transition`}
       >
         {showCloseButton && (
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 p-2 bg-transparent rounded-xl text-zinc-400 hover:text-white transition-colors outline-none z-10"
+            className="absolute top-gr-3 right-gr-3 p-gr-2 bg-transparent rounded-gr-3 text-zinc-400 hover:text-foreground hover:bg-white/10 transition-all outline-none z-10 smooth-transition"
             aria-label="关闭"
           >
-            <X size={24} />
+            <X size={20} />
           </button>
         )}
-        {children}
+        <div className="p-gr-4">
+          {children}
+        </div>
       </div>
     </div>
   );

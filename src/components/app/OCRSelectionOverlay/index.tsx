@@ -101,7 +101,7 @@ export const OCRSelectionOverlay: React.FC<OCRSelectionOverlayProps> = ({
 
       {rect && (
         <div
-          className="absolute border-2 border-blue-500 ring-1 ring-white/20 shadow-[0_0_0_9999px_rgba(0,0,0,0.4)] transition-none"
+          className="absolute border-2 border-accent ring-1 ring-white/20 shadow-[0_0_0_9999px_rgba(0,0,0,0.4)] transition-none shadow-accent/20"
           style={{
             left: rect.x,
             top: rect.y,
@@ -110,8 +110,8 @@ export const OCRSelectionOverlay: React.FC<OCRSelectionOverlayProps> = ({
           }}
         >
           {showInput && (
-            <div className="absolute top-full left-0 mt-2 bg-zinc-900 p-4 rounded-lg border border-zinc-700 shadow-2xl min-w-[300px] pointer-events-auto">
-              <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">
+            <div className="absolute top-full left-0 mt-gr-2 glass-card p-gr-4 min-w-[320px] pointer-events-auto shadow-2xl">
+              <label className="block text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-gr-2">
                 期待出现的文字 (OCR) - 可用 | 隔开多组
               </label>
               <input
@@ -121,18 +121,18 @@ export const OCRSelectionOverlay: React.FC<OCRSelectionOverlayProps> = ({
                 onChange={(e) => setExpectedText(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleConfirm()}
                 placeholder="在此输入匹配文字，多组可用 | 隔开..."
-                className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-blue-500"
+                className="w-full bg-white/5 border border-border rounded-gr-2 px-gr-3 py-gr-2 text-sm text-zinc-100 focus:outline-none focus:border-accent transition-all"
               />
-              <div className="flex gap-2 mt-4 justify-end">
+              <div className="flex gap-gr-3 mt-gr-4 justify-end">
                 <button
                   onClick={onCancel}
-                  className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 font-medium"
+                  className="px-gr-3 py-gr-2 text-xs text-zinc-500 hover:text-foreground font-bold uppercase tracking-tighter smooth-transition"
                 >
                   取消
                 </button>
                 <button
                   onClick={handleConfirm}
-                  className="flex items-center gap-1 bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded text-xs font-bold text-white transition-colors"
+                  className="flex items-center gap-gr-2 premium-gradient shadow-lg shadow-primary/20 px-gr-4 py-gr-2 rounded-gr-2 text-xs font-black text-white hover:opacity-90 smooth-transition"
                 >
                   <Check size={14} />
                   确认设置

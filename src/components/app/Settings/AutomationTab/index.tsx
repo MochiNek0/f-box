@@ -294,8 +294,8 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
   return (
     <div className="space-y-6">
       {/* Record Section */}
-      <section className="bg-zinc-800/30 p-6 rounded-2xl border border-zinc-800/50">
-        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4">
+      <section className="glass p-gr-4 rounded-gr-4">
+        <label className="block text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-gr-3">
           录制操作
         </label>
 
@@ -306,7 +306,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
             onChange={(e) => setRecordName(e.target.value)}
             placeholder="输入脚本名称..."
             disabled={isRecording || isPlaying}
-            className="flex-grow bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-200 text-sm placeholder-zinc-600 focus:outline-none focus:border-orange-500 transition-colors disabled:opacity-50"
+            className="flex-grow bg-white/5 border border-border rounded-gr-3 px-gr-4 py-gr-3 text-zinc-200 text-sm placeholder-zinc-600 focus:outline-none focus:border-primary transition-all disabled:opacity-50"
           />
           <Button
             onClick={() => {
@@ -331,11 +331,11 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
       </section>
 
       {/* OCR Extension Section */}
-      <section className="bg-zinc-800/30 p-6 rounded-2xl border border-zinc-800/50">
-        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4 flex justify-between items-center">
+      <section className="glass p-gr-4 rounded-gr-4">
+        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-gr-3 flex justify-between items-center">
           OCR 扩展功能
           {ocrInstalled ? (
-            <span className="text-green-500 lowercase font-mono">
+            <span className="text-primary lowercase font-mono">
               installed
             </span>
           ) : (
@@ -345,11 +345,11 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
           )}
         </label>
 
-        <div className="flex items-center gap-4 bg-zinc-900/50 p-4 rounded-xl border border-zinc-700/30">
-          <div className="p-3 bg-zinc-800 rounded-lg">
+        <div className="flex items-center gap-gr-3 bg-white/5 p-gr-3 rounded-gr-3 border border-white/5">
+          <div className="p-gr-2 bg-white/5 rounded-gr-2">
             <Box
               size={24}
-              className={ocrInstalled ? "text-orange-400" : "text-zinc-600"}
+              className={ocrInstalled ? "text-primary" : "text-zinc-600"}
             />
           </div>
           <div className="flex-grow">
@@ -371,9 +371,9 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
                   下载扩展包
                 </Button>
                 {isInstallingOcr && (
-                  <div className="w-32 h-1 bg-zinc-800 rounded-full overflow-hidden">
+                  <div className="w-32 h-1 bg-white/10 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-orange-500 transition-all duration-300"
+                      className="h-full bg-primary transition-all duration-300 shadow-[0_0_8px_rgba(var(--primary),0.5)]"
                       style={{ width: `${ocrInstallProgress}%` }}
                     />
                   </div>
@@ -395,9 +395,9 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
 
       {/* Status Bar */}
       {statusMessage && (
-        <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl px-4 py-3 text-sm text-zinc-300 flex items-center gap-2">
+        <div className="glass border border-white/10 rounded-gr-3 px-gr-4 py-gr-3 text-sm text-zinc-300 flex items-center gap-gr-2">
           {isPlaying && loopCount > 0 && (
-            <span className="text-orange-400 font-mono text-xs bg-orange-500/10 px-2 py-0.5 rounded-md">
+            <span className="text-primary font-black font-mono text-[10px] bg-primary/10 px-gr-2 py-0.5 rounded-gr-1 border border-primary/20">
               #{loopCount}
             </span>
           )}
@@ -406,8 +406,8 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
       )}
 
       {/* Scripts List */}
-      <section className="bg-zinc-800/30 p-6 rounded-2xl border border-zinc-800/50">
-        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4">
+      <section className="glass p-gr-4 rounded-gr-4">
+        <label className="block text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-gr-3">
           已录制脚本
         </label>
 
@@ -420,11 +420,11 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
             {scripts.map((name) => (
               <div
                 key={name}
-                className="bg-zinc-900/50 rounded-xl border border-zinc-800/50 overflow-hidden transition-all duration-200"
+                className="bg-white/5 rounded-gr-3 border border-white/5 overflow-hidden transition-all duration-300 hover:bg-white/10"
               >
                 {/* Script Row */}
-                <div className="flex items-center gap-3 px-4 py-3">
-                  <span className="flex-grow text-sm text-zinc-200 font-mono truncate">
+                <div className="flex items-center gap-gr-3 px-gr-4 py-gr-3">
+                  <span className="flex-grow text-sm text-zinc-200 font-mono truncate font-bold tracking-tighter">
                     {name}
                   </span>
 
@@ -439,7 +439,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
                       />
                     ) : (
                       <IconButton
-                        icon={<Play size={14} className="text-green-400" />}
+                        icon={<Play size={14} className="text-primary" />}
                         onClick={() => handlePlay(name)}
                         disabled={isRecording || isPlaying}
                         title="播放"
@@ -487,7 +487,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
                           onChange={(e) =>
                             setRepeatCount(parseInt(e.target.value, 10) || 0)
                           }
-                          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-orange-500 transition-colors"
+                          className="w-full bg-white/5 border border-border rounded-gr-2 px-gr-3 py-gr-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-primary transition-all"
                         />
                       </div>
                     </div>
@@ -495,18 +495,18 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
                     {/* OCR Breakpoint Editing */}
                     {scriptEvents.some((ev) => ev.type === "breakpoint") && (
                       <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-[0.15em] flex items-center gap-1.5">
-                          <Eye size={12} className="text-blue-400" />
+                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-gr-2 border-b border-white/5 pb-gr-1">
+                          <Eye size={12} className="text-accent" />
                           OCR 断点设置
                         </label>
                         {scriptEvents.map((ev, idx) =>
                           ev.type === "breakpoint" ? (
                             <div
                               key={idx}
-                              className="bg-zinc-900/60 rounded-lg border border-zinc-700/40 p-3 space-y-2"
+                              className="bg-white/5 rounded-gr-3 border border-white/5 p-gr-3 space-y-gr-2"
                             >
-                              <div className="flex items-center gap-2 text-[10px] text-zinc-500 font-mono">
-                                <span className="bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded">
+                              <div className="flex items-center gap-gr-2 text-[10px] text-zinc-500 font-mono font-bold">
+                                <span className="bg-accent/10 text-accent px-1.5 py-0.5 rounded-gr-1 border border-accent/20">
                                   #{idx}
                                 </span>
                                 <span>
@@ -525,7 +525,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
                                     handleUpdateOcrText(idx, e.target.value)
                                   }
                                   placeholder="输入匹配文字..."
-                                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 focus:outline-none focus:border-blue-500 transition-colors"
+                                  className="w-full bg-white/5 border border-border rounded-gr-2 px-gr-3 py-gr-2 text-sm text-zinc-200 focus:outline-none focus:border-accent transition-all"
                                 />
                               </div>
                             </div>
@@ -553,9 +553,9 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
       </section>
 
       {/* Usage Tips */}
-      <div className="bg-zinc-800/20 rounded-xl p-4 border border-zinc-800/30">
-        <p className="text-[10px] text-zinc-500 leading-relaxed">
-          <span className="text-zinc-400 font-medium">使用说明：</span>{" "}
+      <div className="glass p-gr-4 rounded-gr-4 border border-white/5">
+        <p className="text-[10px] text-zinc-500 leading-relaxed font-medium">
+          <span className="text-zinc-400 font-black uppercase tracking-widest mr-gr-1 shadow-primary/10">使用说明：</span>{" "}
           录制操作后，可设置重复播放次数。
           播放时脚本将循环执行，直到完成指定次数或手动按 F10 停止。
         </p>

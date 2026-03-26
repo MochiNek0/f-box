@@ -22,9 +22,9 @@ export const Settings: React.FC<SettingsProps> = ({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} maxWidth="max-w-3xl">
-      <div className="p-6 max-md:p-4">
-        <h2 className="text-2xl font-bold text-zinc-100 flex items-center gap-3 mb-6">
-          <Keyboard className="text-orange-500" size={28} />
+      <div className="flex flex-col h-full">
+        <h2 className="text-xl font-black text-foreground flex items-center gap-gr-3 mb-gr-4 uppercase tracking-tighter">
+          <Keyboard className="text-primary" size={24} strokeWidth={3} />
           软件设置
         </h2>
 

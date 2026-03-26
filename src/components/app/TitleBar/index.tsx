@@ -35,18 +35,19 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
 
   return (
     <div
-      className="h-10 bg-zinc-900 flex items-center justify-between select-none relative px-2"
+      className="h-gr-5 flex items-center justify-between select-none relative z-50 px-gr-3"
       style={dragStyle}
     >
-      <div className="flex items-center gap-2">
-        <div className="w-5 h-5 bg-orange-500 rounded flex items-center justify-center flex-shrink-0">
+      <div className="absolute inset-0 glass -z-10" />
+      <div className="flex items-center gap-gr-2">
+        <div className="w-gr-4 h-gr-4 premium-gradient rounded-gr-2 flex items-center justify-center flex-shrink-0 shadow-lg shadow-primary/20">
           <span className="text-white text-[10px] font-bold">F</span>
         </div>
       </div>
 
       <div className="flex items-center h-full no-drag" style={noDragStyle}>
         {/* Opacity Slider */}
-        <div className="flex items-center gap-2 px-3 border-r border-zinc-800">
+        <div className="flex items-center gap-gr-3 px-gr-4 border-r border-border h-gr-4">
           <SunDim size={14} className="text-zinc-500" />
           <input
             type="range"
@@ -55,9 +56,9 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
             step="0.05"
             value={opacity}
             onChange={handleOpacityChange}
-            className="w-16 h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-orange-500 outline-none"
+            className="w-gr-7 premium-slider cursor-pointer outline-none transition-all"
           />
-          <span className="text-[10px] text-zinc-500 w-6 max-md:hidden">
+          <span className="text-[10px] text-zinc-500 w-gr-3 max-md:hidden text-center font-mono">
             {Math.round(opacity * 100)}%
           </span>
         </div>
@@ -76,7 +77,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
           {isMenuOpen && (
             <>
               <div
-                className="fixed inset-0 z-40"
+                className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]"
                 onClick={() => setIsMenuOpen(false)}
               />
               <div className="absolute right-1 top-full mt-1 bg-zinc-800 rounded-md shadow-lg z-50 border border-zinc-700">
@@ -113,17 +114,17 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
         </div>
 
         <IconButton
-          className="max-md:hidden"
+          className="max-md:hidden hover:bg-white/10"
           icon={<Minus size={16} />}
           onClick={() => window.electron.windowControls("minimize")}
         />
         <IconButton
-          className="max-md:hidden"
+          className="max-md:hidden hover:bg-white/10"
           icon={<Square size={12} />}
           onClick={() => window.electron.windowControls("maximize")}
         />
         <IconButton
-          className="max-md:hidden"
+          className="max-md:hidden hover:bg-red-500 hover:text-white"
           icon={<X size={16} />}
           onClick={() => window.electron.windowControls("close")}
         />

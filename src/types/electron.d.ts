@@ -1,7 +1,21 @@
 export interface AutomationEvent {
   t: number;
-  type: "keydown" | "keyup";
-  key: string;
+  type:
+    | "keydown"
+    | "keyup"
+    | "mousedown"
+    | "mouseup"
+    | "mousemove"
+    | "mousewheel"
+    | "breakpoint";
+  key?: string;
+  button?: string;
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  text?: string;
+  t_trigger?: number;
 }
 
 export interface OCRResultItem {

@@ -339,7 +339,8 @@ ExecuteEvent(evt) {
         DllCall("SetCursorPos", "int", evt.x, "int", evt.y)
     }
     else if (evt.type = "mousedown") {
-        DllCall("SetCursorPos", "int", evt.x, "int", evt.y)
+        if (evt.HasProp("x") && evt.HasProp("y"))
+            DllCall("SetCursorPos", "int", evt.x, "int", evt.y)
         Sleep(5)
         if (evt.button = "left")
             Click("Down Left")
@@ -349,7 +350,8 @@ ExecuteEvent(evt) {
             Click("Down Middle")
     }
     else if (evt.type = "mouseup") {
-        DllCall("SetCursorPos", "int", evt.x, "int", evt.y)
+        if (evt.HasProp("x") && evt.HasProp("y"))
+            DllCall("SetCursorPos", "int", evt.x, "int", evt.y)
         Sleep(5)
         if (evt.button = "left")
             Click("Up Left")
@@ -359,7 +361,8 @@ ExecuteEvent(evt) {
             Click("Up Middle")
     }
     else if (evt.type = "mousewheel") {
-        DllCall("SetCursorPos", "int", evt.x, "int", evt.y)
+        if (evt.HasProp("x") && evt.HasProp("y"))
+            DllCall("SetCursorPos", "int", evt.x, "int", evt.y)
         Sleep(5)
         if (evt.button = "up")
             Click("WheelUp")

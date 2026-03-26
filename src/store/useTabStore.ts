@@ -17,6 +17,8 @@ interface TabState {
   loadGame: (id: string, title: string, url: string) => void;
   backToLibrary: (id: string) => void;
   updateZoom: (id: string, factor: number) => void;
+  gameZoomFactors: Record<string, number>;
+  globalZoomFactor: number;
 }
 
 const DEFAULT_TAB_ID = "tab-1";
@@ -32,6 +34,8 @@ export const useTabStore = create<TabState>((set) => ({
     },
   ],
   activeTabId: DEFAULT_TAB_ID,
+  gameZoomFactors: {},
+  globalZoomFactor: 1,
 
   addTab: () => {
     const newId = `tab-${Date.now()}`;
@@ -71,7 +75,15 @@ export const useTabStore = create<TabState>((set) => ({
   loadGame: (id, title, url) => {
     set((state) => ({
       tabs: state.tabs.map((t) =>
-        t.id === id ? { ...t, title, url, isLibrary: false } : t,
+        t.id === id
+          ? {
+              ...t,
+              title,
+              url,
+              isLibrary: false,
+              zoomFactor: state.gameZoomFactors[url] || state.globalZoomFactor,
+            }
+          : t,
       ),
     }));
   },
@@ -87,10 +99,23 @@ export const useTabStore = create<TabState>((set) => ({
   },
 
   updateZoom: (id, factor) => {
-    set((state) => ({
-      tabs: state.tabs.map((t) =>
-        t.id === id ? { ...t, zoomFactor: factor } : t,
-      ),
-    }));
+    set((state) => {
+      const tab = state.tabs.find((t) => t.id === id);
+      const newGameZoomFactors =
+        tab && !tab.isLibrary && tab.url
+          ? { ...state.gameZoomFactors, [tab.url]: factor }
+          : state.gameZoomFactors;
+
+      const newGlobalZoomFactor =
+        tab && !tab.isLibrary ? factor : state.globalZoomFactor;
+
+      return {
+        tabs: state.tabs.map((t) =>
+          t.id === id ? { ...t, zoomFactor: factor } : t,
+        ),
+        gameZoomFactors: newGameZoomFactors,
+        globalZoomFactor: newGlobalZoomFactor,
+      };
+    });
   },
 }));

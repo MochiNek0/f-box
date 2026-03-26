@@ -20,21 +20,21 @@ export const NavigationTab: React.FC<NavigationTabProps> = ({
 }) => {
   return (
     <div
-      className={`flex gap-2 border-b border-zinc-800 overflow-x-auto scrollbar-hide ${className}`}
+      className={`flex gap-gr-3 border-b border-border overflow-x-auto no-scrollbar ${className}`}
     >
       {items.map((item) => (
         <button
           key={item.id}
           onClick={() => onChange(item.id)}
-          className={`px-4 py-2 text-sm bg-transparent outline-none font-medium transition-all relative whitespace-nowrap ${
+          className={`px-gr-4 py-gr-2 text-xs bg-transparent outline-none font-black transition-all relative whitespace-nowrap uppercase tracking-widest ${
             activeId === item.id
-              ? "text-orange-500"
-              : "text-zinc-400 hover:text-zinc-300"
+              ? "text-primary"
+              : "text-zinc-500 hover:text-zinc-300"
           }`}
         >
           {item.label}
           {activeId === item.id && (
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-500" />
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t-full shadow-[0_-1px_4px_rgba(var(--primary),0.5)]" />
           )}
         </button>
       ))}

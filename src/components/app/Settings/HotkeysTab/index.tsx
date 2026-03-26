@@ -56,8 +56,8 @@ export const HotkeysTab: React.FC = () => {
   }, []);
 
   return (
-    <section className="bg-zinc-800/30 p-6 rounded-2xl border border-zinc-800/50">
-      <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-4">
+    <section className="glass p-gr-4 rounded-gr-4">
+      <label className="block text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-gr-3">
         快捷键设置 (Hotkeys)
       </label>
       <div className="space-y-4">
@@ -68,17 +68,17 @@ export const HotkeysTab: React.FC = () => {
               按键后立即隐藏/显示所有窗口
             </p>
           </div>
-          <div className="flex gap-3 max-md:flex-col">
+          <div className="flex gap-gr-3 max-md:flex-col">
             <div
-              className={`flex-grow bg-zinc-900 border ${
+              className={`flex-grow bg-white/5 border ${
                 isRecording
-                  ? "border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.1)]"
-                  : "border-zinc-700"
-              } rounded-xl px-4 py-3 text-zinc-200 flex items-center justify-between transition-all duration-300`}
+                  ? "border-primary shadow-[0_0_15px_rgba(var(--primary),0.1)]"
+                  : "border-border"
+              } rounded-gr-3 px-gr-4 py-gr-3 text-zinc-200 flex items-center justify-between transition-all duration-300`}
             >
               <span className="font-mono text-sm tracking-widest">
                 {isRecording ? (
-                  <span className="text-orange-400 animate-pulse">
+                  <span className="text-primary animate-pulse">
                     正在录制按键...
                   </span>
                 ) : (
@@ -86,7 +86,7 @@ export const HotkeysTab: React.FC = () => {
                 )}
               </span>
               {isRecording && (
-                <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-ping" />
+                <div className="w-1.5 h-1.5 bg-primary rounded-full animate-ping shadow-[0_0_8px_rgba(var(--primary),0.5)]" />
               )}
             </div>
             <Button

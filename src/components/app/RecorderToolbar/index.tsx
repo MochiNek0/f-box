@@ -47,36 +47,36 @@ export const RecorderToolbar: React.FC<RecorderToolbarProps> = ({
   };
 
   return (
-    <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-4 bg-zinc-900/90 backdrop-blur-md border border-zinc-700/50 rounded-full px-6 py-3 shadow-2xl ring-1 ring-white/10">
-      <div className="flex items-center gap-3">
+    <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-gr-4 glass border border-white/10 rounded-gr-8 px-gr-6 py-gr-3 shadow-2xl">
+      <div className="flex items-center gap-gr-3">
         {isRecording ? (
           <IconButton
-            icon={<Square size={20} className="text-white" />}
+            icon={<Square size={20} className="text-black" />}
             onClick={handleStop}
-            className="bg-red-600 hover:bg-red-700 w-10 h-10 rounded-full"
+            className="bg-primary hover:bg-accent w-10 h-10 rounded-full shadow-[0_0_15px_rgba(var(--primary),0.3)] animate-pulse"
             title="停止录制"
           />
         ) : (
           <IconButton
-            icon={<Circle size={20} className="text-red-500 fill-red-500" />}
+            icon={<Circle size={20} className="text-primary fill-primary" />}
             onClick={handleStart}
-            className="bg-zinc-800 hover:bg-zinc-700 w-10 h-10 rounded-full"
+            className="bg-white/5 hover:bg-white/10 w-10 h-10 rounded-full border border-white/10"
             title="开始录制"
           />
         )}
       </div>
 
-      <div className="h-6 w-[1px] bg-zinc-700/50" />
+      <div className="h-gr-4 w-px bg-white/10" />
 
       <div className="flex flex-col min-w-[80px]">
-        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
+        <span className="text-[10px] text-zinc-500 font-black uppercase tracking-widest">
           {status === "正在保存..."
             ? "SAVING"
             : isRecording
               ? "RECORDING"
               : "READY"}
         </span>
-        <span className="text-xs text-zinc-200 font-medium truncate max-w-[120px]">
+        <span className="text-xs text-foreground font-black truncate max-w-[120px] uppercase tracking-tighter">
           {status === "正在保存..." ? status : initialName}
         </span>
       </div>
@@ -84,7 +84,7 @@ export const RecorderToolbar: React.FC<RecorderToolbarProps> = ({
       <IconButton
         icon={<X size={14} />}
         onClick={onClose}
-        className="text-zinc-500 hover:text-zinc-300 ml-2"
+        className="text-zinc-500 hover:text-foreground ml-gr-2"
         title="关闭工具栏"
       />
     </div>
