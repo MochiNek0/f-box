@@ -87,7 +87,11 @@ export async function preprocessImage(
       }
 
       ctx.putImageData(imageData, 0, 0);
-      resolve(canvas.toDataURL("image/png"));
+      const result = canvas.toDataURL("image/png");
+      // Release canvas GPU memory immediately
+      canvas.width = 0;
+      canvas.height = 0;
+      resolve(result);
     };
     img.onerror = reject;
     img.src = dataUrl;

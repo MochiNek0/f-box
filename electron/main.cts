@@ -73,8 +73,6 @@ function findSystemFlashPlugin(): string | null {
 
 // Disable Chromium sandbox for Cheat Engine compatibility
 app.commandLine.appendSwitch("disable-features", "RendererCodeIntegrity");
-app.commandLine.appendSwitch("disable-frame-rate-limit");
-app.commandLine.appendSwitch("disable-gpu-vsync");
 
 const flashPath = findSystemFlashPlugin();
 

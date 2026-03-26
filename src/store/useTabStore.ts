@@ -23,6 +23,8 @@ interface TabState {
 
 const DEFAULT_TAB_ID = "tab-1";
 
+const MAX_ZOOM_ENTRIES = 50;
+
 export const useTabStore = create<TabState>((set) => ({
   tabs: [
     {
@@ -113,7 +115,12 @@ export const useTabStore = create<TabState>((set) => ({
         tabs: state.tabs.map((t) =>
           t.id === id ? { ...t, zoomFactor: factor } : t,
         ),
-        gameZoomFactors: newGameZoomFactors,
+        gameZoomFactors:
+          Object.keys(newGameZoomFactors).length > MAX_ZOOM_ENTRIES
+            ? Object.fromEntries(
+                Object.entries(newGameZoomFactors).slice(-MAX_ZOOM_ENTRIES),
+              )
+            : newGameZoomFactors,
         globalZoomFactor: newGlobalZoomFactor,
       };
     });

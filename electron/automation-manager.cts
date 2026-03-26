@@ -100,10 +100,10 @@ export class AutomationManager {
     try {
       if (!this.mainWindow()) return;
       const image = await this.mainWindow()!.webContents.capturePage();
-      const imgBuffer = image.toPNG();
+      const imgBuffer = image.toJPEG(80);
 
       const screenshotData =
-        "data:image/png;base64," + imgBuffer.toString("base64");
+        "data:image/jpeg;base64," + imgBuffer.toString("base64");
 
       // Request OCR from Renderer
       this.mainWindow()?.webContents.send("automation-ocr-request", {
@@ -395,8 +395,8 @@ export class AutomationManager {
     try {
       if (!this.mainWindow()) return { error: "Main window not available" };
       const image = await this.mainWindow()!.webContents.capturePage();
-      const buffer = image.toPNG();
-      return { data: "data:image/png;base64," + buffer.toString("base64") };
+      const buffer = image.toJPEG(80);
+      return { data: "data:image/jpeg;base64," + buffer.toString("base64") };
     } catch (e: any) {
       return { error: e.message };
     }

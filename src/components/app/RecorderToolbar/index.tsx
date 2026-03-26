@@ -51,16 +51,16 @@ export const RecorderToolbar: React.FC<RecorderToolbarProps> = ({
       <div className="flex items-center gap-gr-3">
         {isRecording ? (
           <IconButton
-            icon={<Square size={20} className="text-black" />}
+            icon={<Square size={20} className="text-white fill-white" />}
             onClick={handleStop}
-            className="bg-primary hover:bg-accent w-10 h-10 rounded-full shadow-[0_0_15px_rgba(var(--primary),0.3)] animate-pulse"
+            className="bg-red-500 hover:bg-red-600 w-10 h-10 rounded-full shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse border border-red-400/20"
             title="停止录制"
           />
         ) : (
           <IconButton
             icon={<Circle size={20} className="text-primary fill-primary" />}
             onClick={handleStart}
-            className="bg-white/5 hover:bg-white/10 w-10 h-10 rounded-full border border-white/10"
+            className="bg-white/10 hover:bg-white/20 w-10 h-10 rounded-full border border-white/20 shadow-md"
             title="开始录制"
           />
         )}
