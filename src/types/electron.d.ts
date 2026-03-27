@@ -82,6 +82,19 @@ export interface AutomationAPI {
   offOCRRequest: () => void;
 }
 
+export interface SpeedAPI {
+  start: () => Promise<{ success: boolean; error?: string }>;
+  stop: () => Promise<{ success: boolean }>;
+  setSpeed: (
+    multiplier: number,
+  ) => Promise<{ success: boolean; error?: string }>;
+  getStatus: () => Promise<{
+    active: boolean;
+    speed: number;
+    pid: number | null;
+  }>;
+}
+
 export interface IElectronAPI {
   getPlatform: () => string;
   windowControls: (action: "minimize" | "maximize" | "close") => void;
@@ -117,6 +130,7 @@ export interface IElectronAPI {
   onOcrInstallProgress: (callback: (percent: number) => void) => void;
   offOcrInstallProgress: () => void;
   automation: AutomationAPI;
+  speed: SpeedAPI;
 }
 
 declare global {

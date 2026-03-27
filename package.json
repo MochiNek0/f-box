@@ -47,11 +47,31 @@
       {
         "from": "public/assets/automation.exe",
         "to": "automation.exe"
+      },
+      {
+        "from": "public/assets/speedhack32.dll",
+        "to": "speedhack32.dll"
+      },
+      {
+        "from": "public/assets/speedhack64.dll",
+        "to": "speedhack64.dll"
+      },
+      {
+        "from": "public/assets/injector32.exe",
+        "to": "injector32.exe"
+      },
+      {
+        "from": "public/assets/injector64.exe",
+        "to": "injector64.exe"
       }
     ],
     "asarUnpack": [
       "keymap.exe",
-      "automation.exe"
+      "automation.exe",
+      "speedhack32.dll",
+      "speedhack64.dll",
+      "injector32.exe",
+      "injector64.exe"
     ],
     "win": {
       "icon": "public/icon.ico",
@@ -77,6 +97,22 @@
         {
           "from": "public/assets/automation.exe",
           "to": "automation.exe"
+        },
+        {
+          "from": "public/assets/speedhack32.dll",
+          "to": "speedhack32.dll"
+        },
+        {
+          "from": "public/assets/speedhack64.dll",
+          "to": "speedhack64.dll"
+        },
+        {
+          "from": "public/assets/injector32.exe",
+          "to": "injector32.exe"
+        },
+        {
+          "from": "public/assets/injector64.exe",
+          "to": "injector64.exe"
         }
       ]
     },
