@@ -86,7 +86,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
                     setSpeed(parseFloat(val) || 0);
                   }
                 }}
-                className="w-7 bg-transparent text-[9px] font-black tabular-nums text-center text-zinc-100 placeholder-zinc-600 border-none outline-none p-0"
+                className="w-10 bg-transparent text-[9px] font-black tabular-nums text-center text-zinc-100 placeholder-zinc-600 border-none outline-none p-0"
                 placeholder="1.0"
               />
               <span className="text-[7.5px] font-black text-zinc-500 ml-0.5">X</span>
@@ -104,6 +104,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
                 <option value="2" className="bg-zinc-800 text-zinc-200">2x</option>
                 <option value="5" className="bg-zinc-800 text-zinc-200">5x</option>
                 <option value="10" className="bg-zinc-800 text-zinc-200">10x</option>
+                <option value="100" className="bg-zinc-800 text-zinc-200">100x</option>
               </select>
             </div>
 

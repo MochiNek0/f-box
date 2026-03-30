@@ -11,6 +11,7 @@ const SPEED_PRESETS = [
   { label: "2x", value: 2.0 },
   { label: "5x", value: 5.0 },
   { label: "10x", value: 10.0 },
+  { label: "100x", value: 100.0 },
 ];
 
 export const SpeedTab: React.FC = () => {
@@ -121,7 +122,7 @@ export const SpeedTab: React.FC = () => {
           速度预设
         </label>
 
-        <div className="grid grid-cols-6 gap-gr-2">
+        <div className="grid grid-cols-7 gap-gr-2">
           {SPEED_PRESETS.map((preset) => (
             <button
               key={preset.value}

@@ -153,7 +153,10 @@ export class SpeedManager {
 
     const injectorExe = this.getInjectorPath(this.is64Bit);
     try {
-      execSync(`"${injectorExe}" --speed ${this.flashPid} ${this.dataAddr} ${multiplier}`, { windowsHide: true });
+      spawn(injectorExe, ["--speed", this.flashPid.toString(), this.dataAddr, multiplier.toString()], {
+        windowsHide: true,
+        stdio: "ignore",
+      }).unref();
       this.currentSpeed = multiplier;
       return { success: true };
     } catch {
