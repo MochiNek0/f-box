@@ -6,7 +6,6 @@ import { HotkeysTab } from "./HotkeysTab";
 import { KeymapTab } from "./KeymapTab";
 import { AutomationTab } from "./AutomationTab";
 import { ClickerTab } from "./ClickerTab";
-import { SpeedTab } from "./SpeedTab";
 
 interface SettingsProps {
   isOpen: boolean;
@@ -37,7 +36,6 @@ export const Settings: React.FC<SettingsProps> = ({
             { id: "keymap", label: "按键映射" },
             { id: "automation", label: "操作自动化" },
             { id: "clicker", label: "连点器" },
-            { id: "speed", label: "变速齿轮" },
           ]}
           activeId={activeTab}
           onChange={setActiveTab}
@@ -50,7 +48,6 @@ export const Settings: React.FC<SettingsProps> = ({
             <AutomationTab onOpenRecorder={onOpenRecorder} onClose={onClose} />
           )}
           {activeTab === "clicker" && <ClickerTab />}
-          {activeTab === "speed" && <SpeedTab />}
         </div>
       </div>
     </Modal>

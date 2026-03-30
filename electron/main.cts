@@ -1,4 +1,5 @@
 import { app, ipcMain, shell } from "electron";
+
 import path from "path";
 import fs from "fs";
 import { OcrManager } from "./ocr.cjs";
@@ -72,10 +73,7 @@ function findSystemFlashPlugin(): string | null {
   return null;
 }
 
-// Disable Chromium sandbox for Cheat Engine compatibility
-app.commandLine.appendSwitch("no-sandbox");
-app.commandLine.appendSwitch("disable-features", "RendererCodeIntegrity");
-
+// Disable features for DLL injection integrity
 const flashPath = findSystemFlashPlugin();
 
 if (flashPath) {
