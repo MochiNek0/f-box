@@ -59,6 +59,10 @@ body {
   -webkit-app-region: no-drag;
 }
 
+*:focus {
+  outline: none;
+}
+
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
@@ -90,15 +94,19 @@ body {
 
 /* Premium Slider styling */
 input[type="range"].premium-slider {
-  @apply appearance-none bg-zinc-800/50 rounded-full h-1.5 border border-white/5;
+  @apply appearance-none bg-white/10 rounded-full h-1 border border-white/5;
 }
 
 input[type="range"].premium-slider::-webkit-slider-thumb {
-  @apply appearance-none w-3.5 h-3.5 bg-primary rounded-full cursor-pointer shadow-[0_0_10px_rgba(var(--primary),0.5)] transition-all border-2 border-zinc-900;
+  @apply appearance-none w-3 h-3 bg-primary rounded-full cursor-pointer shadow-[0_0_10px_rgba(var(--primary),0.5)] transition-all border border-zinc-900;
 }
 
 input[type="range"].premium-slider::-moz-range-thumb {
-  @apply w-3.5 h-3.5 bg-primary rounded-full cursor-pointer shadow-[0_0_10px_rgba(var(--primary),0.5)] transition-all border-2 border-zinc-900;
+  @apply w-3 h-3 bg-primary rounded-full cursor-pointer shadow-[0_0_10px_rgba(var(--primary),0.5)] transition-all border border-zinc-900;
+}
+
+input[type="range"].premium-slider:active::-webkit-slider-thumb {
+  @apply scale-125 shadow-[0_0_15px_rgba(var(--primary),0.8)];
 }
 
 @keyframes fade-in-up {
@@ -112,8 +120,21 @@ input[type="range"].premium-slider::-moz-range-thumb {
   }
 }
 
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .animate-fade-in-up {
   animation: fade-in-up 0.5s ease-out forwards;
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out forwards;
 }
 
 .card-hover-effect {

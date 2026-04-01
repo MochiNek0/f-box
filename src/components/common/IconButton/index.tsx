@@ -14,7 +14,7 @@ export const IconButton: React.FC<IconButtonProps> = ({
   ...props
 }) => {
   const baseStyles =
-    "rounded-gr-1 transition-all outline-none flex items-center justify-center smooth-transition";
+    "rounded-gr-1 transition-all outline-none focus:outline-none focus:ring-0 focus-visible:outline-none flex items-center justify-center smooth-transition";
 
   const variantStyles = {
     default: "bg-transparent hover:bg-white/10 text-zinc-400 hover:text-foreground",

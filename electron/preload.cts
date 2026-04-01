@@ -113,4 +113,13 @@ contextBridge.exposeInMainWorld("electron", {
       ipcRenderer.removeAllListeners("automation-ocr-request");
     },
   },
+
+  // Speed Gear API
+  speed: {
+    start: () => ipcRenderer.invoke("speed-start"),
+    stop: () => ipcRenderer.invoke("speed-stop"),
+    setSpeed: (multiplier: number) =>
+      ipcRenderer.invoke("speed-set", multiplier),
+    getStatus: () => ipcRenderer.invoke("speed-status"),
+  },
 });

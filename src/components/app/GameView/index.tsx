@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { useTabStore } from "../../../store/useTabStore";
-import { ZoomIn, ZoomOut, RefreshCw, ArrowLeft, Maximize2 } from "lucide-react";
+import { ZoomIn, ZoomOut, RefreshCw, ArrowLeft } from "lucide-react";
 import { IconButton } from "../../common/IconButton";
 
 interface GameViewProps {
@@ -154,14 +154,6 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
             style={{ width: "1280px", height: "100%" }}
           />
         </div>
-      </div>
-
-      <div className="absolute bottom-4 right-4 z-20">
-        <IconButton
-          icon={<Maximize2 size={16} />}
-          onClick={() => webviewRef.current?.openDevTools()}
-          className="bg-zinc-800/80 backdrop-blur border border-zinc-700"
-        />
       </div>
     </div>
   );

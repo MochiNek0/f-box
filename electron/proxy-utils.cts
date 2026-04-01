@@ -17,22 +17,20 @@ interface ProxyConfig {
  */
 const GITHUB_PROXIES: ProxyConfig[] = [
   // 高优先级 - 稳定性最好的代理
+  { url: "https://mirror.ghproxy.com/", priority: 1, name: "ghproxy" },
+  { url: "https://gh-proxy.com/", priority: 2, name: "gh-proxy.com" },
+  { url: "https://ghp.ci/", priority: 3, name: "ghp.ci" },
+  { url: "https://ghproxy.net/", priority: 4, name: "ghproxy.net" },
+  { url: "https://hub.gitmirror.com/", priority: 5, name: "gitmirror" },
+  { url: "https://github.moeyy.xyz/", priority: 6, name: "moeyy" },
   {
-    url: "https://xget.xi-xu.me/gh/",
-    priority: 1,
-    name: "x-get",
-    // x-get 需要相对路径，去除 https://github.com/ 前缀
+    url: "https://kkgithub.com/",
+    priority: 7,
+    name: "kkgithub",
     buildUrl: (proxyUrl, githubUrl) => {
-      const relativePath = githubUrl.replace(/^https?:\/\/github\.com\//i, "");
-      return `${proxyUrl}${relativePath}`;
+      return githubUrl.replace(/^https?:\/\/github\.com/i, "https://kkgithub.com");
     },
   },
-  { url: "https://ghp.ci/", priority: 2, name: "ghp.ci" },
-  { url: "https://mirror.ghproxy.com/", priority: 3, name: "ghproxy" },
-  { url: "https://gh-proxy.llync.com/", priority: 4, name: "gh-proxy-llync" },
-  { url: "https://github.moeyy.xyz/", priority: 5, name: "moeyy" },
-  { url: "https://ghproxy.cc/", priority: 6, name: "ghproxy.cc" },
-  { url: "https://ghproxy.net/", priority: 7, name: "ghproxy.net" },
 ];
 
 /**

@@ -15,16 +15,18 @@ export const RecorderToolbar: React.FC<RecorderToolbarProps> = ({
   const [status, setStatus] = useState("准备就绪");
 
   useEffect(() => {
-    const detachStatus = window.electron.automation.onStatus((status: string) => {
-      if (status === "STATUS|RECORDING") {
-        setIsRecording(true);
-      } else if (status === "STATUS|RECORD_DONE") {
-        setIsRecording(false);
-        onClose(); // Auto-close when recording is done (handles F10 stop)
-      } else if (status === "STATUS|PROCESS_EXIT") {
-        setIsRecording(false);
-      }
-    });
+    const detachStatus = window.electron.automation.onStatus(
+      (status: string) => {
+        if (status === "STATUS|RECORDING") {
+          setIsRecording(true);
+        } else if (status === "STATUS|RECORD_DONE") {
+          setIsRecording(false);
+          onClose(); // Auto-close when recording is done (handles F10 stop)
+        } else if (status === "STATUS|PROCESS_EXIT") {
+          setIsRecording(false);
+        }
+      },
+    );
 
     return () => {
       detachStatus();
@@ -47,20 +49,22 @@ export const RecorderToolbar: React.FC<RecorderToolbarProps> = ({
   };
 
   return (
-    <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-gr-4 glass border border-white/10 rounded-gr-8 px-gr-6 py-gr-3 shadow-2xl">
+    <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-gr-2 glass border border-white/10 rounded-full px-gr-4 py-gr-1 shadow-2xl">
       <div className="flex items-center gap-gr-3">
         {isRecording ? (
           <IconButton
-            icon={<Square size={20} className="text-white fill-white" />}
+            icon={<Square size={16} className="text-white fill-white" />}
+            size="sm"
             onClick={handleStop}
-            className="bg-red-500 hover:bg-red-600 w-10 h-10 rounded-full shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse border border-red-400/20"
+            className="bg-red-500 hover:bg-red-600 w-6 h-6 rounded-full shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse border border-red-400/20"
             title="停止录制"
           />
         ) : (
           <IconButton
-            icon={<Circle size={20} className="text-primary fill-primary" />}
+            icon={<Circle size={16} className="text-primary fill-primary" />}
+            size="sm"
             onClick={handleStart}
-            className="bg-white/10 hover:bg-white/20 w-10 h-10 rounded-full border border-white/20 shadow-md"
+            className="bg-white/10 hover:bg-white/20 w-6 h-6 rounded-full border border-white/20 shadow-md"
             title="开始录制"
           />
         )}
@@ -82,9 +86,10 @@ export const RecorderToolbar: React.FC<RecorderToolbarProps> = ({
       </div>
 
       <IconButton
-        icon={<X size={14} />}
+        icon={<X size={16} />}
+        size="sm"
         onClick={onClose}
-        className="text-zinc-500 hover:text-foreground ml-gr-2"
+        className="text-zinc-500 hover:text-foreground ml-gr-1 w-6 h-6 rounded-full border border-zinc-500/20"
         title="关闭工具栏"
       />
     </div>

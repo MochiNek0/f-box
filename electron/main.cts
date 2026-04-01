@@ -1,4 +1,5 @@
 import { app, ipcMain, shell } from "electron";
+
 import path from "path";
 import fs from "fs";
 import { OcrManager } from "./ocr.cjs";
@@ -7,6 +8,7 @@ import { ShortcutManager } from "./shortcut-manager.cjs";
 import { ConfigManager } from "./config-manager.cjs";
 import { AutomationManager } from "./automation-manager.cjs";
 import { UpdateManager } from "./update-manager.cjs";
+import { SpeedManager } from "./speed-manager.cjs";
 
 // ================================================================
 // System Integrator - Flash Plugin Detection
@@ -71,9 +73,7 @@ function findSystemFlashPlugin(): string | null {
   return null;
 }
 
-// Disable Chromium sandbox for Cheat Engine compatibility
-app.commandLine.appendSwitch("disable-features", "RendererCodeIntegrity");
-
+// Disable features for DLL injection integrity
 const flashPath = findSystemFlashPlugin();
 
 if (flashPath) {
@@ -92,6 +92,7 @@ let shortcutManager: ShortcutManager | null = null;
 let configManager: ConfigManager | null = null;
 let automationManager: AutomationManager | null = null;
 let updateManager: UpdateManager | null = null;
+let speedManager: SpeedManager | null = null;
 
 // Get window reference (used by multiple managers)
 const getWindow = () => windowManager?.getWindow() || null;
@@ -104,6 +105,7 @@ app.on("ready", () => {
   ocrManager = new OcrManager();
   automationManager = new AutomationManager(getWindow, ocrManager);
   updateManager = new UpdateManager();
+  speedManager = new SpeedManager();
 
   // Setup
   windowManager.createWindow();
@@ -118,6 +120,7 @@ app.on("ready", () => {
   shortcutManager.setupIPCHandlers();
   automationManager.setupIPCHandlers();
   updateManager.setupIPCHandlers();
+  speedManager.setupIPCHandlers();
 
   setupExternalLinkHandler();
   setupAppVersionHandler();
@@ -233,6 +236,7 @@ app.on("before-quit", () => {
   configManager?.killAHK();
   automationManager?.kill();
   ocrManager?.kill();
+  speedManager?.kill();
   shortcutManager?.dispose();
 });
 

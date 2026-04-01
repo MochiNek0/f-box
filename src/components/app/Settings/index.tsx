@@ -41,13 +41,19 @@ export const Settings: React.FC<SettingsProps> = ({
           onChange={setActiveTab}
         />
 
-        <div className="max-h-[60vh] relative overflow-y-auto">
-          {activeTab === "hotkeys" && <HotkeysTab />}
-          {activeTab === "keymap" && <KeymapTab />}
-          {activeTab === "automation" && (
+        <div className="h-[60vh] min-h-[400px] relative overflow-y-auto">
+          <div className={activeTab === "hotkeys" ? "animate-fade-in block" : "hidden"}>
+            <HotkeysTab />
+          </div>
+          <div className={activeTab === "keymap" ? "animate-fade-in block" : "hidden"}>
+            <KeymapTab />
+          </div>
+          <div className={activeTab === "automation" ? "animate-fade-in block" : "hidden"}>
             <AutomationTab onOpenRecorder={onOpenRecorder} onClose={onClose} />
-          )}
-          {activeTab === "clicker" && <ClickerTab />}
+          </div>
+          <div className={activeTab === "clicker" ? "animate-fade-in block" : "hidden"}>
+            <ClickerTab />
+          </div>
         </div>
       </div>
     </Modal>
