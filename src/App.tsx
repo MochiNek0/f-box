@@ -19,6 +19,7 @@ type AutomationFeedback = {
   lastStatus: string;
   lastOcrText: string;
   ocrMatched: boolean | null;
+  isExpanded: boolean;
 };
 
 const App: React.FC = () => {
@@ -36,6 +37,7 @@ const App: React.FC = () => {
       lastStatus: "等待自动化任务开始",
       lastOcrText: "",
       ocrMatched: null,
+      isExpanded: false,
     });
 
   const handleOpenRecorder = (name: string) => {
@@ -85,6 +87,7 @@ const App: React.FC = () => {
         const action = parts[1];
         if (action === "PLAYING") {
           setShowAutomationFeedback(true);
+          setAutomationFeedback((prev) => ({ ...prev, isExpanded: false }));
         }
 
         if (action === "LOOP_START") {
@@ -109,6 +112,7 @@ const App: React.FC = () => {
           setAutomationFeedback((prev) => ({
             ...prev,
             lastStatus: `已停止，共执行 ${parts[2] ?? prev.runCount} 次`,
+            isExpanded: true,
           }));
           return;
         }
@@ -328,8 +332,23 @@ const App: React.FC = () => {
         />
       )}
 
-      {showAutomationFeedback && (
-        <div className="fixed right-gr-3 top-[100px] z-40 w-[200px] glass-card p-gr-3 flex flex-col gap-gr-2">
+      {/* Mini indicator - always visible when automation is active */}
+      {showAutomationFeedback && !automationFeedback.isExpanded && (
+        <button
+          onClick={() => setAutomationFeedback((prev) => ({ ...prev, isExpanded: true }))}
+          className="fixed right-gr-3 bottom-gr-4 z-40 flex items-center gap-gr-2 glass-card px-gr-3 py-gr-2 cursor-pointer hover:bg-white/10 transition-colors"
+        >
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+          </span>
+          <span className="text-xs font-black text-foreground uppercase tracking-widest">执行中</span>
+        </button>
+      )}
+
+      {/* Expanded feedback panel */}
+      {showAutomationFeedback && automationFeedback.isExpanded && (
+        <div className="fixed right-gr-3 bottom-gr-4 z-40 w-[200px] glass-card p-gr-3 flex flex-col gap-gr-2">
           <div className="flex items-center justify-between gap-gr-2">
             <div className="flex items-center gap-gr-2">
               <p className="text-xs font-black text-foreground uppercase tracking-widest">执行信息</p>
