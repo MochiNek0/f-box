@@ -27,6 +27,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
   };
   const [opacity, setOpacity] = useState(1);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [speedInput, setSpeedInput] = useState("");
+  const speedInputTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { tabs, activeTabId } = useTabStore();
   const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -45,6 +47,11 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
   React.useEffect(() => {
     useSpeedStore.getState().fetchStatus();
   }, []);
+
+  // Sync local input when speed changes externally (e.g., preset selection)
+  React.useEffect(() => {
+    setSpeedInput(speed > 0 ? speed.toString() : "");
+  }, [speed]);
 
   const handleOpacityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
@@ -79,12 +86,22 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
             <div className="flex items-center bg-zinc-900/50 rounded-md px-1 py-0.5 border border-white/5 focus-within:border-primary/50 transition-all">
               <input
                 type="text"
-                value={speed}
+                value={speedInput}
                 onChange={(e) => {
                   const val = e.target.value;
                   if (val === "" || /^[0-9]*\.?[0-9]*$/.test(val)) {
-                    setSpeed(parseFloat(val) || 0);
+                    setSpeedInput(val);
+                    if (speedInputTimer.current) clearTimeout(speedInputTimer.current);
+                    speedInputTimer.current = setTimeout(() => {
+                      const num = parseFloat(val);
+                      if (!isNaN(num) && num > 0) setSpeed(num);
+                    }, 300);
                   }
+                }}
+                onBlur={() => {
+                  if (speedInputTimer.current) clearTimeout(speedInputTimer.current);
+                  const num = parseFloat(speedInput);
+                  if (!isNaN(num) && num > 0) setSpeed(num);
                 }}
                 className="w-10 bg-transparent text-[9px] font-black tabular-nums text-center text-zinc-100 placeholder-zinc-600 border-none outline-none p-0"
                 placeholder="1.0"

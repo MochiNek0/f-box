@@ -125,8 +125,16 @@ export class SpeedManager {
         proc.on("exit", (code) => {
           if (!resolved) {
             resolved = true;
-            if (code === 0) resolve({ success: true });
-            else resolve({ success: false, error: "注入器非正常退出" });
+            // Only report success if injection handshake was confirmed via stdout.
+            // Exit code 0 alone is insufficient — the injector may exit 0 without
+            // ever printing STATUS|INJECTED, leaving dataAddr / injected unset.
+            if (code === 0 && this.injected) {
+              resolve({ success: true });
+            } else if (code === 0) {
+              resolve({ success: false, error: "注入器未完成握手" });
+            } else {
+              resolve({ success: false, error: "注入器非正常退出" });
+            }
           }
         });
 
