@@ -11,6 +11,9 @@ interface GameViewProps {
 type FlashWebviewElement = HTMLElement & {
   setZoomFactor: (factor: number) => void;
   openDevTools: () => void;
+  reload: () => void;
+  addEventListener(type: string, listener: (event: any) => void): void;
+  removeEventListener(type: string, listener: (event: any) => void): void;
 };
 
 const WEBVIEW_FLASH_PROPS: Record<string, string> = {
@@ -28,6 +31,8 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
   const webviewRef = useRef<FlashWebviewElement | null>(null);
   const latestZoomRef = useRef(zoomFactor);
   const [pid, setPid] = useState<number | null>(null);
+  const [isCrashed, setIsCrashed] = useState(false);
+  const [crashReason, setCrashReason] = useState<string | null>(null);
 
   const applyZoom = useCallback(() => {
     if (!webviewRef.current) {
@@ -54,6 +59,8 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
     const webview = webviewRef.current;
 
     const onDomReady = async () => {
+      setIsCrashed(false);
+      setCrashReason(null);
       applyZoom();
       try {
         // Get the actual Flash plugin process PID instead of the webview PID
@@ -62,6 +69,18 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       } catch (e) {
         console.warn("Failed to get Flash PID:", e);
       }
+    };
+
+    const onCrashed = (e: any) => {
+      console.error("Webview crashed:", e);
+      setIsCrashed(true);
+      setCrashReason(e.reason || "unknown");
+    };
+
+    const onPluginCrashed = (e: any) => {
+      console.error("Flash plugin crashed:", e);
+      setIsCrashed(true);
+      setCrashReason("plugin-crashed");
     };
 
     const onNavigation = () => {
@@ -74,6 +93,8 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
     webview.addEventListener("did-navigate", onNavigation);
     webview.addEventListener("did-navigate-in-page", onNavigation);
     webview.addEventListener("did-stop-loading", onNavigation);
+    webview.addEventListener("render-process-gone", onCrashed);
+    webview.addEventListener("plugin-crashed", onPluginCrashed);
 
     return () => {
       webview.removeEventListener("dom-ready", onDomReady);
@@ -81,6 +102,8 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       webview.removeEventListener("did-navigate", onNavigation);
       webview.removeEventListener("did-navigate-in-page", onNavigation);
       webview.removeEventListener("did-stop-loading", onNavigation);
+      webview.removeEventListener("render-process-gone", onCrashed);
+      webview.removeEventListener("plugin-crashed", onPluginCrashed);
     };
   }, [id, url, applyZoom]);
 
@@ -90,6 +113,14 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
   };
 
   const resetZoom = () => updateZoom(id, 1);
+
+  const handleReload = () => {
+    if (webviewRef.current) {
+      setIsCrashed(false);
+      setCrashReason(null);
+      webviewRef.current.reload();
+    }
+  };
 
   return (
     <div className="flex flex-col h-full bg-zinc-950 overflow-hidden relative">
@@ -144,13 +175,30 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       </div>
 
       {/* Webview Container */}
-      <div className="flex-grow flex justify-center items-start pt-10 overflow-auto bg-zinc-900">
+      <div className="flex-grow flex justify-center items-start pt-10 overflow-auto bg-zinc-900 relative">
+        {isCrashed && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-900/90 backdrop-blur-sm text-white p-gr-6 text-center">
+            <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mb-gr-4 border border-red-500/30">
+              <RefreshCw size={32} className="text-red-500" />
+            </div>
+            <h3 className="text-xl font-black uppercase tracking-widest mb-gr-2">游戏已崩溃</h3>
+            <p className="text-zinc-400 text-sm mb-gr-6 max-w-md">
+              由于渲染进程或插件异常，游戏视图已停止响应 ({crashReason})。这通常是由于内存不足或变速器冲突引起的。
+            </p>
+            <button
+              onClick={handleReload}
+              className="px-gr-6 py-gr-3 bg-primary text-black font-black uppercase tracking-tighter hover:scale-105 transition-transform shadow-[0_0_20px_rgba(var(--primary),0.3)]"
+            >
+              重新加载游戏
+            </button>
+          </div>
+        )}
         <div className="w-full h-full flex justify-center">
           <webview
             ref={webviewRef}
             src={url}
             {...WEBVIEW_FLASH_PROPS} // Enable Flash & Popups
-            className="w-full h-full bg-black shadow-2xl"
+            className={`w-full h-full bg-black shadow-2xl transition-opacity duration-300 ${isCrashed ? 'opacity-0' : 'opacity-100'}`}
             style={{ width: "1280px", height: "100%" }}
           />
         </div>

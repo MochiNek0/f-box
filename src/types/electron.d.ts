@@ -137,4 +137,9 @@ declare global {
   interface Window {
     electron: IElectronAPI;
   }
+  namespace JSX {
+    interface IntrinsicElements {
+      webview: any;
+    }
+  }
 }

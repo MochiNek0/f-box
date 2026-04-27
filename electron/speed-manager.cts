@@ -78,10 +78,16 @@ export class SpeedManager {
    * Injects the speedhack DLL into the target Flash process.
    */
   async start(): Promise<{ success: boolean; error?: string }> {
-    if (this.injected) return { success: true };
-
     const pid = this.getFlashPid();
     if (!pid) return { success: false, error: "Flash 进程未就绪" };
+
+    // If already injected but PID changed (e.g. crash/reload), reset state
+    if (this.injected && this.flashPid !== pid) {
+      this.injected = false;
+      this.dataAddr = null;
+    }
+
+    if (this.injected) return { success: true };
 
     const is64 = await this.isProcess64Bit(pid);
     const injectorExe = this.getInjectorPath(is64);
