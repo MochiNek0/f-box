@@ -11,8 +11,18 @@ import {
   Download,
   Box,
   Eye,
+  Check,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Hash,
+  MousePointer2,
+  Type,
 } from "lucide-react";
+import type { OcrResultEntry } from "../../../../types/electron";
 import { IconButton } from "../../../common/IconButton";
+import { NumberInput } from "../../../common/NumberInput";
 
 const isWindows = () => window.electron.getPlatform() === "win32";
 
@@ -81,8 +91,10 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
   const [scriptEvents, setScriptEvents] = useState<any[]>([]);
   const [ocrInstalled, setOcrInstalled] = useState(false);
   const [isInstallingOcr, setIsInstallingOcr] = useState(false);
-
+  const [ocrResults, setOcrResults] = useState<OcrResultEntry[]>([]);
   const [ocrInstallProgress, setOcrInstallProgress] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
 
   const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -204,8 +216,17 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
             setScriptEvents([]);
           }
         });
+      // Load OCR results
+      window.electron.automation
+        .getOcrResults(expandedScript)
+        .then((results) => {
+          setOcrResults(results || []);
+          setCurrentPage(1);
+        });
     } else {
       setScriptEvents([]);
+      setOcrResults([]);
+      setCurrentPage(1);
     }
   }, [expandedScript]);
 
@@ -268,6 +289,15 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
     }
   };
 
+  const handleClearOcrResults = async () => {
+    if (!expandedScript) return;
+    await window.electron.automation.clearOcrResults(expandedScript);
+    setOcrResults([]);
+    setStatusMessage("🗑️ OCR 结果已清除");
+    if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
+    statusTimeoutRef.current = setTimeout(() => setStatusMessage(""), 2000);
+  };
+
   const handleInstallOcr = async () => {
     setIsInstallingOcr(true);
     setOcrInstallProgress(0);
@@ -290,6 +320,17 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
       setStatusMessage("🗑️ OCR 扩展包已卸载");
     }
   };
+
+  const sortedResults = [...ocrResults].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+  );
+
+  const totalPages = Math.ceil(sortedResults.length / ITEMS_PER_PAGE);
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+  const paginatedResults = sortedResults.slice(
+    startIndex,
+    startIndex + ITEMS_PER_PAGE,
+  );
 
   return (
     <div className="space-y-6">
@@ -335,9 +376,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
         <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-gr-3 flex justify-between items-center">
           OCR 扩展功能
           {ocrInstalled ? (
-            <span className="text-primary lowercase font-mono">
-              installed
-            </span>
+            <span className="text-primary lowercase font-mono">installed</span>
           ) : (
             <span className="text-zinc-600 lowercase font-mono">
               not installed
@@ -480,17 +519,140 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
                         <label className="text-xs text-zinc-400 block mb-2">
                           重复播放次数 (0 为无限循环)
                         </label>
-                        <input
-                          type="number"
-                          min="0"
+                        <NumberInput
+                          min={0}
                           value={repeatCount}
-                          onChange={(e) =>
-                            setRepeatCount(parseInt(e.target.value, 10) || 0)
-                          }
-                          className="w-full bg-white/5 border border-border rounded-gr-2 px-gr-3 py-gr-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-primary transition-all"
+                          onChange={setRepeatCount}
                         />
                       </div>
                     </div>
+
+                    {/* Inline OCR Results */}
+                    {ocrResults.length > 0 && (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                          <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-gr-2">
+                            <Clock size={12} className="text-primary" />
+                            识别历史 ({ocrResults.length})
+                          </label>
+                          <IconButton
+                            onClick={handleClearOcrResults}
+                            icon={<Trash2 size={12} />}
+                            variant="danger"
+                            title="清除所有记录"
+                          />
+                        </div>
+
+                        <div className="bg-black/20 rounded-gr-3 border border-white/5 overflow-hidden">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                              <thead>
+                                <tr className="bg-white/5 text-[9px] uppercase tracking-widest text-zinc-500 font-black border-b border-white/5">
+                                  <th className="px-3 py-2">状态</th>
+                                  <th className="px-3 py-2">
+                                    <div className="flex items-center gap-1">
+                                      <Hash size={10} /> 轮次/断点
+                                    </div>
+                                  </th>
+                                  <th className="px-3 py-2">
+                                    <div className="flex items-center gap-1">
+                                      <Type size={10} /> 识别内容
+                                    </div>
+                                  </th>
+                                  <th className="px-3 py-2">
+                                    <div className="flex items-center gap-1">
+                                      <MousePointer2 size={10} /> 预期
+                                    </div>
+                                  </th>
+                                  <th className="px-3 py-2 text-right">时间</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-white/5">
+                                {paginatedResults.map((r, i) => (
+                                  <tr
+                                    key={r.requestId + i}
+                                    className="hover:bg-white/5 transition-colors group"
+                                  >
+                                    <td className="px-3 py-2">
+                                      {r.matched ? (
+                                        <div className="w-5 h-5 rounded-full bg-green-400/10 flex items-center justify-center text-green-400">
+                                          <Check size={12} />
+                                        </div>
+                                      ) : (
+                                        <div className="w-5 h-5 rounded-full bg-red-400/10 flex items-center justify-center text-red-400">
+                                          <X size={12} />
+                                        </div>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-zinc-300 font-mono text-[10px]">
+                                          #{r.runCount}
+                                        </span>
+                                        <span className="text-zinc-600 text-[10px]">
+                                          /
+                                        </span>
+                                        <span className="bg-accent/10 text-accent px-1 py-0.5 rounded text-[9px] font-mono border border-accent/20">
+                                          BP {r.eventIndex}
+                                        </span>
+                                      </div>
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <span
+                                        className={`text-xs font-mono truncate max-w-[120px] block ${r.matched ? "text-zinc-200" : "text-zinc-400"}`}
+                                        title={r.recognizedText}
+                                      >
+                                        {r.recognizedText || (
+                                          <span className="text-zinc-700 italic">
+                                            (空)
+                                          </span>
+                                        )}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-2">
+                                      <span
+                                        className="text-[10px] text-zinc-500 font-mono truncate max-w-[80px] block"
+                                        title={r.expectedText}
+                                      >
+                                        {r.expectedText}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-2 text-right">
+                                      <span className="text-[9px] text-zinc-600 font-mono group-hover:text-zinc-400 transition-colors">
+                                        {new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                        {/* Pagination */}
+                        {totalPages > 1 && (
+                          <div className="flex items-center justify-between pt-1">
+                            <p className="text-[10px] text-zinc-500">
+                              第 {currentPage} 页 / 共 {totalPages} 页
+                            </p>
+                            <div className="flex items-center gap-1">
+                              <IconButton
+                                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                                disabled={currentPage === 1}
+                                icon={<ChevronLeft size={12} />}
+                                title="上一页"
+                              />
+                              <IconButton
+                                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                                disabled={currentPage === totalPages}
+                                icon={<ChevronRight size={12} />}
+                                title="下一页"
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* OCR Breakpoint Editing */}
                     {scriptEvents.some((ev) => ev.type === "breakpoint") && (
@@ -499,8 +661,9 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
                           <Eye size={12} className="text-accent" />
                           OCR 断点设置
                         </label>
-                        {scriptEvents.map((ev, idx) =>
-                          ev.type === "breakpoint" ? (
+                        {scriptEvents.map((ev, idx) => {
+                          if (ev.type !== "breakpoint") return null;
+                          return (
                             <div
                               key={idx}
                               className="bg-white/5 rounded-gr-3 border border-white/5 p-gr-3 space-y-gr-2"
@@ -510,8 +673,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
                                   #{idx}
                                 </span>
                                 <span>
-                                  区域: ({ev.x}, {ev.y}, {ev.w}×
-                                  {ev.h})
+                                  区域: ({ev.x}, {ev.y}, {ev.w}×{ev.h})
                                 </span>
                               </div>
                               <div>
@@ -529,8 +691,8 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
                                 />
                               </div>
                             </div>
-                          ) : null,
-                        )}
+                          );
+                        })}
                       </div>
                     )}
 
@@ -555,7 +717,9 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
       {/* Usage Tips */}
       <div className="glass p-gr-4 rounded-gr-4 border border-white/5">
         <p className="text-[10px] text-zinc-500 leading-relaxed font-medium">
-          <span className="text-zinc-400 font-black uppercase tracking-widest mr-gr-1 shadow-primary/10">使用说明：</span>{" "}
+          <span className="text-zinc-400 font-black uppercase tracking-widest mr-gr-1 shadow-primary/10">
+            使用说明：
+          </span>{" "}
           录制操作后，可设置重复播放次数。
           播放时脚本将循环执行，直到完成指定次数或手动按 F10 停止。
         </p>

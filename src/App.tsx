@@ -11,16 +11,6 @@ import { UpdateNotifier } from "./components/app/UpdateNotifier";
 import { useTabStore } from "./store/useTabStore";
 import { useSettingsStore } from "./store/useSettingsStore";
 import { preprocessImage } from "./utils/imageProcess";
-import { IconButton } from "./components/common/IconButton";
-import { X } from "lucide-react";
-
-type AutomationFeedback = {
-  runCount: number;
-  lastStatus: string;
-  lastOcrText: string;
-  ocrMatched: boolean | null;
-  isExpanded: boolean;
-};
 
 const App: React.FC = () => {
   const [hasFlash, setHasFlash] = useState<boolean | null>(null);
@@ -30,15 +20,6 @@ const App: React.FC = () => {
   const [initialRecordName, setInitialRecordName] = useState("");
   // Store t_trigger (F9 press time) from BREAKPOINT_REQ to pass back on resume
   const pendingTTrigger = useRef<number>(0);
-  const [showAutomationFeedback, setShowAutomationFeedback] = useState(false);
-  const [automationFeedback, setAutomationFeedback] =
-    useState<AutomationFeedback>({
-      runCount: 0,
-      lastStatus: "等待自动化任务开始",
-      lastOcrText: "",
-      ocrMatched: null,
-      isExpanded: false,
-    });
 
   const handleOpenRecorder = (name: string) => {
     setInitialRecordName(name);
@@ -76,82 +57,6 @@ const App: React.FC = () => {
         console.warn("Electron bridge not found");
         setHasFlash(false);
       }
-
-      // Automation status listener for persistent run feedback
-      detachStatus = window.electron.automation?.onStatus?.((status) => {
-        const parts = status.split("|");
-        if (parts[0] !== "STATUS") {
-          return;
-        }
-
-        const action = parts[1];
-        if (action === "PLAYING") {
-          setShowAutomationFeedback(true);
-          setAutomationFeedback((prev) => ({ ...prev, isExpanded: false }));
-        }
-
-        if (action === "LOOP_START") {
-          const currentRound = parseInt(parts[2] || "0", 10);
-          setAutomationFeedback((prev) => ({
-            ...prev,
-            runCount: Number.isNaN(currentRound) ? prev.runCount : currentRound,
-            lastStatus: `第 ${parts[2] ?? "0"} 次执行中`,
-          }));
-          return;
-        }
-
-        if (action === "CONDITION_MET") {
-          setAutomationFeedback((prev) => ({
-            ...prev,
-            lastStatus: `停止条件满足，共执行 ${parts[2] ?? prev.runCount} 次`,
-          }));
-          return;
-        }
-
-        if (action === "STOPPED") {
-          setAutomationFeedback((prev) => ({
-            ...prev,
-            lastStatus: `已停止，共执行 ${parts[2] ?? prev.runCount} 次`,
-            isExpanded: true,
-          }));
-          return;
-        }
-
-        if (action === "OCR_RESULT") {
-          const matched = parts[3] === "1";
-          let decodedText = "";
-          try {
-            decodedText = decodeURIComponent(parts.slice(4).join("|") || "");
-          } catch {
-            decodedText = parts.slice(4).join("|");
-          }
-          setAutomationFeedback((prev) => ({
-            ...prev,
-            lastOcrText: decodedText || "（未识别到文本）",
-            ocrMatched: matched,
-            lastStatus: matched
-              ? "OCR 识别成功，触发停止"
-              : "OCR 未匹配，继续执行",
-          }));
-          return;
-        }
-
-        if (action === "OCR_NOT_INSTALLED") {
-          setAutomationFeedback((prev) => ({
-            ...prev,
-            ocrMatched: false,
-            lastStatus: "未安装 OCR 扩展，断点识别不可用",
-          }));
-          return;
-        }
-
-        if (action === "PLAYING") {
-          setAutomationFeedback((prev) => ({
-            ...prev,
-            lastStatus: "自动化执行中",
-          }));
-        }
-      });
 
       // Breakpoint Trigger Listener
       if (
@@ -330,65 +235,6 @@ const App: React.FC = () => {
             setShowOCRSelection(false);
           }}
         />
-      )}
-
-      {/* Mini indicator - always visible when automation is active */}
-      {showAutomationFeedback && !automationFeedback.isExpanded && (
-        <button
-          onClick={() => setAutomationFeedback((prev) => ({ ...prev, isExpanded: true }))}
-          className="fixed right-gr-3 bottom-gr-4 z-40 flex items-center gap-gr-2 glass-card px-gr-3 py-gr-2 cursor-pointer hover:bg-white/10 transition-colors"
-        >
-          <span className="relative flex h-3 w-3">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-          </span>
-          <span className="text-xs font-black text-foreground uppercase tracking-widest">执行中</span>
-        </button>
-      )}
-
-      {/* Expanded feedback panel */}
-      {showAutomationFeedback && automationFeedback.isExpanded && (
-        <div className="fixed right-gr-3 bottom-gr-4 z-40 w-[200px] glass-card p-gr-3 flex flex-col gap-gr-2">
-          <div className="flex items-center justify-between gap-gr-2">
-            <div className="flex items-center gap-gr-2">
-              <p className="text-xs font-black text-foreground uppercase tracking-widest">执行信息</p>
-              {automationFeedback.ocrMatched !== null && (
-                <span
-                  className={`w-2 h-2 rounded-full shadow-sm ${
-                    automationFeedback.ocrMatched
-                      ? "bg-emerald-400 shadow-emerald-400/50"
-                      : "bg-red-400 shadow-red-400/50"
-                  }`}
-                ></span>
-              )}
-            </div>
-            <IconButton
-              icon={<X size={16} />}
-              onClick={() => setShowAutomationFeedback(false)}
-            />
-          </div>
-
-          <div className="space-y-gr-2">
-            <div className="flex items-center justify-between rounded-gr-2 bg-white/5 px-gr-2 py-gr-1 text-[12px] border border-white/5">
-              <span className="text-zinc-500 font-medium">执行次数</span>
-              <span className="font-mono font-bold text-primary">
-                {automationFeedback.runCount}
-              </span>
-            </div>
-            <div className="rounded-gr-2 bg-white/5 px-gr-2 py-gr-1 border border-white/5">
-              <span className="text-zinc-500 text-[10px] font-medium block uppercase tracking-tighter">状态</span>
-              <span className="text-foreground text-xs font-semibold">
-                {automationFeedback.lastStatus}
-              </span>
-            </div>
-            <div className="rounded-gr-2 bg-white/5 px-gr-2 py-gr-1 border border-white/5">
-              <span className="text-zinc-500 text-[10px] font-medium block uppercase tracking-tighter">OCR 结果</span>
-              <span className="text-foreground text-xs font-semibold">
-                {automationFeedback.lastOcrText || "暂无"}
-              </span>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Update Notifier Overlay */}

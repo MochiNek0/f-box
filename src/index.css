@@ -144,3 +144,14 @@ input[type="range"].premium-slider:active::-webkit-slider-thumb {
 .card-hover-effect:hover {
   @apply -translate-y-2 shadow-[0_20px_40px_-15px_rgba(0,0,0,0.5)] border-primary/30 bg-white/[0.06];
 }
+
+/* Hide default spin buttons */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}

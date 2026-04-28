@@ -112,6 +112,10 @@ contextBridge.exposeInMainWorld("electron", {
     offOCRRequest: () => {
       ipcRenderer.removeAllListeners("automation-ocr-request");
     },
+    getOcrResults: (name: string) =>
+      ipcRenderer.invoke("automation-get-ocr-results", name),
+    clearOcrResults: (name: string) =>
+      ipcRenderer.invoke("automation-clear-ocr-results", name),
   },
 
   // Speed Gear API

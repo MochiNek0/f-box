@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Gauge, Play, Square, RotateCcw } from "lucide-react";
 import { Button } from "../../../common/Button";
+import { NumberInput } from "../../../common/NumberInput";
 
 const isWindows = () => window.electron.getPlatform() === "win32";
 
@@ -18,7 +19,7 @@ export const SpeedTab: React.FC = () => {
   const [isPlatformSupported, setIsPlatformSupported] = useState(true);
   const [isActive, setIsActive] = useState(false);
   const [speed, setSpeed] = useState(1.0);
-  const [customSpeed, setCustomSpeed] = useState("1.0");
+  const [customSpeed, setCustomSpeed] = useState(1.0);
   const [statusMessage, setStatusMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -31,7 +32,7 @@ export const SpeedTab: React.FC = () => {
     window.electron.speed.getStatus().then((status) => {
       setIsActive(status.active);
       setSpeed(status.speed);
-      setCustomSpeed(status.speed.toString());
+      setCustomSpeed(status.speed);
     });
   }, []);
 
@@ -80,7 +81,7 @@ export const SpeedTab: React.FC = () => {
     await window.electron.speed.stop();
     setIsActive(false);
     setSpeed(1.0);
-    setCustomSpeed("1.0");
+    setCustomSpeed(1.0);
     setStatusMessage("⏹️ 变速齿轮已停止");
     setIsLoading(false);
     setTimeout(() => setStatusMessage(""), 3000);
@@ -88,7 +89,7 @@ export const SpeedTab: React.FC = () => {
 
   const handleSetSpeed = async (newSpeed: number) => {
     setSpeed(newSpeed);
-    setCustomSpeed(newSpeed.toString());
+    setCustomSpeed(newSpeed);
     if (isActive) {
       const result = await window.electron.speed.setSpeed(newSpeed);
       if (result.success) {
@@ -101,7 +102,7 @@ export const SpeedTab: React.FC = () => {
   };
 
   const handleCustomSpeedSubmit = async () => {
-    const val = parseFloat(customSpeed);
+    const val = customSpeed;
     if (isNaN(val) || val <= 0) {
       setStatusMessage("❌ 请输入有效的速度值");
       setTimeout(() => setStatusMessage(""), 2000);
@@ -145,18 +146,17 @@ export const SpeedTab: React.FC = () => {
             自定义倍速
           </span>
           <div className="flex items-center gap-gr-2">
-            <input
-              type="number"
-              min="0.01"
-              max="999"
-              step="0.1"
+            <NumberInput
+              min={0.01}
+              max={999}
+              step={0.1}
               value={customSpeed}
-              onChange={(e) => setCustomSpeed(e.target.value)}
+              onChange={setCustomSpeed}
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleCustomSpeedSubmit();
               }}
               disabled={isLoading}
-              className="w-24 bg-white/5 border border-border rounded-gr-2 px-gr-3 py-gr-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-primary transition-all disabled:opacity-50 font-black"
+              className="w-24 font-black"
             />
             <span className="text-[10px] text-zinc-500 font-black">x</span>
             <Button

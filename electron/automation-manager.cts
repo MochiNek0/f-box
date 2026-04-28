@@ -8,6 +8,7 @@ import path from "path";
 import fs from "fs";
 import { spawn, ChildProcess } from "child_process";
 import { OcrManager } from "./ocr.cjs";
+import { OcrResultManager, OcrResultEntry } from "./ocr-result-manager.cjs";
 
 export interface AutomationOcrRequest {
   requestId: string;
@@ -34,6 +35,9 @@ export class AutomationManager {
   private scriptsDir: string;
   private scriptsConfigDir: string;
   private stdoutBuffer = "";
+  private ocrRequestMap = new Map<string, { eventIndex: number; expectedText: string }>();
+  private currentRunCount = 0;
+  private ocrResultManager: OcrResultManager;
 
   constructor(
     getWindow: () => BrowserWindow | null,
@@ -45,6 +49,7 @@ export class AutomationManager {
     const configDir = path.join(app.getPath("home"), ".f-box");
     this.scriptsDir = path.join(configDir, "scripts");
     this.scriptsConfigDir = path.join(configDir, "scripts_config");
+    this.ocrResultManager = new OcrResultManager();
   }
 
   private getAutomationRuntime(): { exe: string; args: string[] } {
@@ -92,6 +97,11 @@ export class AutomationManager {
     const w = parseInt(parts[6]);
     const h = parseInt(parts[7]);
     const expectedText = parts.slice(8).join("|");
+
+    this.ocrRequestMap.set(requestId, {
+      eventIndex: parseInt(index),
+      expectedText,
+    });
 
     console.log(
       `Playback OCR Request [id=${requestId}]: Expected "${expectedText}" at (${x},${y},${w},${h})`,
@@ -161,6 +171,10 @@ export class AutomationManager {
           }
         } else if (trimmed.startsWith("REQ|OCR|")) {
           this.handlePlaybackOCRRequest(trimmed).catch(console.error);
+        } else if (trimmed.startsWith("STATUS|LOOP_START")) {
+          const loopParts = trimmed.split("|");
+          this.currentRunCount = parseInt(loopParts[2] || "0", 10);
+          this.mainWindow()?.webContents.send("automation-status", trimmed);
         } else {
           this.mainWindow()?.webContents.send("automation-status", trimmed);
         }
@@ -474,6 +488,16 @@ export class AutomationManager {
     ipcMain.handle("automation-get-screenshot", async () => {
       return this.getScreenshot();
     });
+
+    // Get OCR Results
+    ipcMain.handle("automation-get-ocr-results", async (_event, name: string) => {
+      return this.getOcrResults(name);
+    });
+
+    // Clear OCR Results
+    ipcMain.handle("automation-clear-ocr-results", async (_event, name: string) => {
+      return this.clearOcrResults(name);
+    });
   }
 
   handleOCRResponse(
@@ -486,6 +510,23 @@ export class AutomationManager {
       "automation-status",
       `STATUS|OCR_RESULT|${data.requestId}|${data.matched ? "1" : "0"}|${encodeURIComponent(data.text ?? "")}`,
     );
+
+    // Persist OCR result
+    const mapping = this.ocrRequestMap.get(data.requestId);
+    if (mapping && this.currentPlayingScriptPath) {
+      this.ocrRequestMap.delete(data.requestId);
+      const scriptName = path.basename(this.currentPlayingScriptPath, ".json");
+      const entry: OcrResultEntry = {
+        timestamp: new Date().toISOString(),
+        runCount: this.currentRunCount,
+        eventIndex: mapping.eventIndex,
+        requestId: data.requestId,
+        recognizedText: data.text ?? "",
+        expectedText: mapping.expectedText,
+        matched: data.matched,
+      };
+      this.ocrResultManager.saveResult(scriptName, entry);
+    }
 
     if (this.currentPlayingScriptPath) {
       if (data.matched) {
@@ -504,6 +545,15 @@ export class AutomationManager {
         );
       }
     }
+  }
+
+  getOcrResults(name: string): OcrResultEntry[] {
+    return this.ocrResultManager.getResults(name);
+  }
+
+  clearOcrResults(name: string): { success: boolean } {
+    const success = this.ocrResultManager.clearResults(name);
+    return { success };
   }
 
   kill(): void {

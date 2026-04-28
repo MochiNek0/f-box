@@ -27,6 +27,16 @@ export interface OCRResponseData {
   data?: OCRResultItem[];
 }
 
+export interface OcrResultEntry {
+  timestamp: string;
+  runCount: number;
+  eventIndex: number;
+  requestId: string;
+  recognizedText: string;
+  expectedText: string;
+  matched: boolean;
+}
+
 export interface AutomationConfig {
   repeatCount?: number;
   steps?: Array<{ id: string; key: string; intervalMs: number }>;
@@ -80,6 +90,8 @@ export interface AutomationAPI {
     matched: boolean;
   }) => void;
   offOCRRequest: () => void;
+  getOcrResults: (name: string) => Promise<OcrResultEntry[]>;
+  clearOcrResults: (name: string) => Promise<{ success: boolean }>;
 }
 
 export interface SpeedAPI {

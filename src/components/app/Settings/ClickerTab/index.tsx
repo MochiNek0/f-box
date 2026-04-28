@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "../../../common/Button";
 import { IconButton } from "../../../common/IconButton";
+import { NumberInput } from "../../../common/NumberInput";
 import { KeySelectorDropdown } from "../KeySelectorDropdown";
 
 const isWindows = () => window.electron.getPlatform() === "win32";
@@ -487,19 +488,14 @@ export const ClickerTab: React.FC = () => {
 
                 <div className="flex-1 flex items-center gap-gr-2">
                   <span className="text-[10px] text-zinc-500 font-black uppercase tracking-tighter">延时 (ms)</span>
-                  <input
-                    type="number"
-                    min="0"
+                  <NumberInput
+                    min={0}
                     disabled={isPlaying}
                     value={step.intervalMs}
-                    onChange={(e) =>
-                      handleUpdateStep(
-                        step.id,
-                        "intervalMs",
-                        parseInt(e.target.value) || 0,
-                      )
+                    onChange={(val) =>
+                      handleUpdateStep(step.id, "intervalMs", val)
                     }
-                    className="w-24 bg-white/5 border border-border rounded-gr-1 px-gr-2 py-gr-1 text-[10px] font-mono text-zinc-200 focus:outline-none focus:border-primary transition-all disabled:opacity-50 font-black"
+                    className="w-24 text-[10px] font-black"
                   />
                 </div>
               </div>
@@ -546,13 +542,12 @@ export const ClickerTab: React.FC = () => {
             <label className="text-[10px] font-black text-zinc-500 uppercase tracking-tighter block mb-gr-2">
               循环次数 (0 为无限循环)
             </label>
-            <input
-              type="number"
-              min="0"
+            <NumberInput
+              min={0}
               value={loopCount}
-              onChange={(e) => setLoopCount(parseInt(e.target.value, 10) || 0)}
+              onChange={setLoopCount}
               disabled={isPlaying}
-              className="w-full max-w-[200px] bg-white/5 border border-border rounded-gr-2 px-gr-3 py-gr-2 text-sm text-zinc-200 font-mono focus:outline-none focus:border-primary transition-all disabled:opacity-50"
+              className="max-w-[200px]"
             />
           </div>
         </div>
