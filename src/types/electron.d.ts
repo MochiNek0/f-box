@@ -42,12 +42,31 @@ export interface AutomationConfig {
   steps?: Array<{ id: string; key: string; intervalMs: number }>;
 }
 
+export type AutomationHotkeyKey = "F3" | "F4" | "F5";
+
+export interface AutomationHotkeySlots {
+  F3: string | null;
+  F4: string | null;
+  F5: string | null;
+}
+
 export interface AutomationAPI {
   startRecord: (name: string) => Promise<{ success: boolean; error?: string }>;
   stopRecord: () => Promise<{ success: boolean }>;
   startPlay: (name: string) => Promise<{ success: boolean; error?: string }>;
   stopPlay: () => Promise<{ success: boolean }>;
   listScripts: () => Promise<string[]>;
+  getHotkeySlots: () => Promise<AutomationHotkeySlots>;
+  saveHotkeySlots: (
+    slots: AutomationHotkeySlots,
+  ) => Promise<{
+    success: boolean;
+    error?: string;
+    slots?: AutomationHotkeySlots;
+  }>;
+  onHotkeySlotsChanged: (
+    callback: (slots: AutomationHotkeySlots) => void,
+  ) => () => void;
   deleteScript: (name: string) => Promise<{ success: boolean; error?: string }>;
   saveConfig: (
     name: string,
@@ -105,6 +124,7 @@ export interface SpeedAPI {
     speed: number;
     pid: number | null;
   }>;
+  onShortcut: (callback: (key: "F1" | "F2") => void) => () => void;
 }
 
 export interface IElectronAPI {
@@ -134,6 +154,14 @@ export interface IElectronAPI {
   ocrGetStatus: () => Promise<{ installed: boolean }>;
   ocrInstall: () => Promise<{ success: boolean }>;
   ocrUninstall: () => Promise<{ success: boolean }>;
+  checkUpdate: () => Promise<{
+    available: boolean;
+    version?: string;
+    url?: string;
+    assetName?: string;
+    source?: string;
+    error?: string;
+  }>;
   downloadUpdate: (
     url: string,
   ) => Promise<{ success: boolean; error?: string }>;

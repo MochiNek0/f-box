@@ -6,7 +6,7 @@ import {
   SunDim,
   Gauge,
   Play,
-  Square as SquareIcon,
+  Pause,
   Menu as MenuIcon,
   Settings as SettingsIcon,
 } from "lucide-react";
@@ -17,6 +17,22 @@ interface TitleBarProps {
   onSettingsClick: () => void;
 }
 
+const SPEED_PRESETS = [4, 8, 16, 32, 64] as const;
+
+const isEditableTarget = (target: EventTarget | null) => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const tagName = target.tagName.toLowerCase();
+  return (
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
+    target.isContentEditable
+  );
+};
+
 export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
   const dragStyle: React.CSSProperties & { WebkitAppRegion: "drag" } = {
     WebkitAppRegion: "drag",
@@ -26,29 +42,68 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
   };
   const [opacity, setOpacity] = useState(1);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [speedInput, setSpeedInput] = useState("");
-  const speedInputTimer = React.useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const [selectedSpeed, setSelectedSpeed] = useState("4");
+  const [customSpeedInput, setCustomSpeedInput] = useState("");
+  const isCustomEditingRef = React.useRef(false);
 
   const {
     active: isSpeedActive,
     speed,
+    pendingMultiplier,
     isLoading: isSpeedLoading,
     statusMessage: speedMessage,
-    startSpeed,
-    stopSpeed,
-    setSpeed,
+    setPendingMultiplier,
+    applyPendingSpeed,
+    resetToOriginalSpeed,
   } = useSpeedStore();
 
   React.useEffect(() => {
     useSpeedStore.getState().fetchStatus();
   }, []);
 
-  // Sync local input when speed changes externally (e.g., preset selection)
   React.useEffect(() => {
-    setSpeedInput(speed > 0 ? speed.toString() : "");
-  }, [speed]);
+    if (isCustomEditingRef.current) {
+      return;
+    }
+
+    const matchingPreset = SPEED_PRESETS.find(
+      (preset) => preset === pendingMultiplier,
+    );
+    if (matchingPreset) {
+      setSelectedSpeed(String(matchingPreset));
+      return;
+    }
+
+    setSelectedSpeed("custom");
+    setCustomSpeedInput(String(pendingMultiplier));
+  }, [pendingMultiplier]);
+
+  React.useEffect(() => {
+    const unsubscribe = window.electron?.speed?.onShortcut?.((key) => {
+      if (key === "F1") {
+        void applyPendingSpeed();
+      } else {
+        void resetToOriginalSpeed();
+      }
+    });
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target)) {
+        return;
+      }
+
+      if (event.key.toLowerCase() === "y") {
+        event.preventDefault();
+        void applyPendingSpeed();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      unsubscribe?.();
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [applyPendingSpeed, resetToOriginalSpeed]);
 
   const handleOpacityChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
@@ -60,13 +115,42 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
     setIsMenuOpen(!isMenuOpen);
   };
 
+  const handleSpeedSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    setSelectedSpeed(value);
+
+    if (value === "custom") {
+      isCustomEditingRef.current = true;
+      setCustomSpeedInput("");
+      return;
+    }
+
+    isCustomEditingRef.current = false;
+    setPendingMultiplier(Number(value));
+  };
+
+  const handleCustomSpeedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    if (value !== "" && !/^\d*\.?\d*$/.test(value)) {
+      return;
+    }
+
+    setCustomSpeedInput(value);
+    const multiplier = Number(value);
+    if (Number.isFinite(multiplier) && multiplier > 0) {
+      setPendingMultiplier(multiplier);
+    }
+  };
+
+  const isOriginalSpeed = Math.abs(speed - 1) < 0.001;
+
   return (
     <div
       className="h-gr-5 flex items-center justify-between select-none relative z-50 px-gr-3"
       style={dragStyle}
     >
       <div className="absolute inset-0 glass -z-10" />
-      <div className="flex items-center gap-gr-3">
+      <div className="flex items-center gap-gr-3 min-w-0">
         <div className="w-gr-4 h-gr-4 premium-gradient rounded-gr-2 flex items-center justify-center flex-shrink-0 shadow-lg shadow-primary/20">
           <span className="text-white text-[10px] font-bold">F</span>
         </div>
@@ -75,109 +159,84 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
           className="flex items-center gap-gr-1 px-gr-1 py-0.5 bg-white/5 rounded-full border border-white/10 no-drag ml-gr-2 shadow-sm"
           style={noDragStyle}
         >
-          {/* Status Icon */}
           <div
-            className={`p-1 rounded-full transition-colors ${isSpeedActive ? "text-primary bg-primary/10" : "text-zinc-500 bg-white/5"}`}
+            className={`p-1 rounded-full transition-colors ${
+              isSpeedActive
+                ? "text-primary bg-primary/10"
+                : "text-zinc-500 bg-white/5"
+            }`}
           >
             <Gauge size={12} className={isSpeedActive ? "animate-pulse" : ""} />
           </div>
 
-          {/* Custom Multiplier Input (自动调节/自定义倍数) */}
-          <div className="flex items-center bg-zinc-900/50 rounded-md px-1 py-0.5 border border-white/5 focus-within:border-primary/50 transition-all">
+          <select
+            value={selectedSpeed}
+            onChange={handleSpeedSelect}
+            className="h-5 appearance-none rounded border border-white/10 bg-zinc-900/80 px-2 text-[10px] font-bold text-zinc-100 outline-none transition-colors hover:bg-zinc-800"
+            title="待生效倍速"
+          >
+            {SPEED_PRESETS.map((preset) => (
+              <option
+                key={preset}
+                value={preset}
+                className="bg-zinc-800 text-zinc-100"
+              >
+                {preset}x
+              </option>
+            ))}
+            <option value="custom" className="bg-zinc-800 text-zinc-100">
+              自定义
+            </option>
+          </select>
+
+          {selectedSpeed === "custom" && (
             <input
               type="text"
-              value={speedInput}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val === "" || /^[0-9]*\.?[0-9]*$/.test(val)) {
-                  setSpeedInput(val);
-                  if (speedInputTimer.current)
-                    clearTimeout(speedInputTimer.current);
-                  speedInputTimer.current = setTimeout(() => {
-                    const num = parseFloat(val);
-                    if (!isNaN(num) && num > 0) setSpeed(num);
-                  }, 300);
-                }
-              }}
-              onBlur={() => {
-                if (speedInputTimer.current)
-                  clearTimeout(speedInputTimer.current);
-                const num = parseFloat(speedInput);
-                if (!isNaN(num) && num > 0) setSpeed(num);
-              }}
-              className="w-10 bg-transparent text-[9px] font-black tabular-nums text-center text-zinc-100 placeholder-zinc-600 border-none outline-none p-0"
-              placeholder="1.0"
+              inputMode="decimal"
+              value={customSpeedInput}
+              onChange={handleCustomSpeedChange}
+              className="h-5 w-14 rounded border border-white/10 bg-zinc-900/80 px-1.5 text-center text-[10px] font-bold text-zinc-100 placeholder:text-zinc-500 outline-none transition-colors focus:border-primary/50"
+              placeholder="请输入"
+              title="自定义待生效倍速"
             />
-            <span className="text-[7.5px] font-black text-zinc-500 ml-0.5">
-              X
-            </span>
-          </div>
+          )}
 
-          {/* Gears Dropdown (挡位下拉框) */}
-          <div className="relative flex items-center h-4">
-            <select
-              value={
-                Math.abs(speed - Math.round(speed)) < 0.01
-                  ? Math.round(speed)
-                  : ""
-              }
-              onChange={(e) => setSpeed(parseFloat(e.target.value))}
-              className="appearance-none bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-zinc-200 text-[8.5px] font-black px-1.5 py-0.5 rounded border border-white/5 outline-none cursor-pointer transition-all"
-            >
-              <option value="" disabled hidden>
-                ·
-              </option>
-              <option value="1" className="bg-zinc-800 text-zinc-200">
-                1x
-              </option>
-              <option value="2" className="bg-zinc-800 text-zinc-200">
-                2x
-              </option>
-              <option value="5" className="bg-zinc-800 text-zinc-200">
-                5x
-              </option>
-              <option value="10" className="bg-zinc-800 text-zinc-200">
-                10x
-              </option>
-              <option value="100" className="bg-zinc-800 text-zinc-200">
-                100x
-              </option>
-            </select>
-          </div>
-
-          {/* Toggle Button */}
           <button
-            onClick={() => (isSpeedActive ? stopSpeed() : startSpeed())}
+            onClick={() =>
+              void (isOriginalSpeed
+                ? applyPendingSpeed()
+                : resetToOriginalSpeed())
+            }
             disabled={isSpeedLoading}
-            className={`p-1 rounded-full transition-all group ${
-              isSpeedActive
-                ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
-                : "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-            } disabled:opacity-50`}
-            title={isSpeedActive ? "停止变速" : "开启变速"}
+            className={`h-5 w-5 inline-flex items-center justify-center rounded-full transition-colors disabled:opacity-50 ${
+              !isOriginalSpeed
+                ? "bg-red-500/15 text-red-300 hover:bg-red-500/25"
+                : "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
+            }`}
+            title={isOriginalSpeed ? "启用变速" : "切回原速"}
           >
-            {isSpeedActive ? (
-              <SquareIcon size={10} fill="currentColor" />
+            {!isOriginalSpeed ? (
+              <Pause size={10} fill="currentColor" />
             ) : (
-              <Play
-                size={10}
-                fill="currentColor"
-                className="translate-x-[0.5px]"
-              />
+              <Play size={10} fill="currentColor" />
             )}
           </button>
 
-          {/* Feedback Message (Optional/Compact) */}
+          <span className="whitespace-nowrap px-1 text-[10px] font-bold text-zinc-400">
+            {isOriginalSpeed
+              ? "处于原速 ,按F1变速"
+              : "处于变速 ,按F2切原速"}
+          </span>
+
           {speedMessage && (
             <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 px-2 py-0.5 bg-zinc-900 border border-border rounded text-[9px] font-bold text-primary whitespace-nowrap shadow-xl z-[60] animate-in fade-in zoom-in duration-200">
-              {speedMessage.replace(/^[✅⏹⚡❌]\s*/, "")}
+              {speedMessage}
             </div>
           )}
         </div>
       </div>
 
       <div className="flex items-center h-full no-drag" style={noDragStyle}>
-        {/* Opacity Slider */}
         <div className="flex items-center gap-gr-3 px-gr-4 border-r border-border h-gr-4">
           <SunDim size={14} className="text-zinc-500" />
           <input
@@ -194,13 +253,10 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
           </span>
         </div>
 
-        {/* Settings Button */}
         <IconButton
           icon={<SettingsIcon size={16} />}
           onClick={onSettingsClick}
         />
-
-        {/* Window Controls */}
 
         <div className="relative flex items-center h-full md:hidden">
           <IconButton icon={<MenuIcon size={16} />} onClick={toggleMenu} />

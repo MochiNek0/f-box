@@ -26,14 +26,42 @@ export interface BreakpointData {
   tTrigger?: number;
 }
 
+export type AutomationHotkeyKey = "F3" | "F4" | "F5";
+
+export interface AutomationHotkeySlots {
+  F3: string | null;
+  F4: string | null;
+  F5: string | null;
+}
+
+export interface AutomationHotkeyPressResult {
+  handled: boolean;
+  success: boolean;
+  action: "empty" | "start" | "stop" | "ignored";
+  key: AutomationHotkeyKey;
+  scriptName?: string;
+  error?: string;
+}
+
+const AUTOMATION_HOTKEY_KEYS: AutomationHotkeyKey[] = ["F3", "F4", "F5"];
+
+const createEmptyHotkeySlots = (): AutomationHotkeySlots => ({
+  F3: null,
+  F4: null,
+  F5: null,
+});
+
 export class AutomationManager {
   private mainWindow: () => BrowserWindow | null;
   private ocrManager: OcrManager | null;
   private automationProcess: ChildProcess | null = null;
   private currentRecordingScriptPath: string | null = null;
   private currentPlayingScriptPath: string | null = null;
+  private activeHotkeySlot: AutomationHotkeyKey | null = null;
+  private configDir: string;
   private scriptsDir: string;
   private scriptsConfigDir: string;
+  private hotkeySlotsPath: string;
   private stdoutBuffer = "";
   private ocrRequestMap = new Map<string, { eventIndex: number; expectedText: string }>();
   private currentRunCount = 0;
@@ -46,9 +74,10 @@ export class AutomationManager {
     this.mainWindow = getWindow;
     this.ocrManager = ocrManager;
 
-    const configDir = path.join(app.getPath("home"), ".f-box");
-    this.scriptsDir = path.join(configDir, "scripts");
-    this.scriptsConfigDir = path.join(configDir, "scripts_config");
+    this.configDir = path.join(app.getPath("home"), ".f-box");
+    this.scriptsDir = path.join(this.configDir, "scripts");
+    this.scriptsConfigDir = path.join(this.configDir, "scripts_config");
+    this.hotkeySlotsPath = path.join(this.configDir, "automation_hotkeys.json");
     this.ocrResultManager = new OcrResultManager();
   }
 
@@ -68,11 +97,97 @@ export class AutomationManager {
   }
 
   private ensureScriptDirs(): void {
+    if (!fs.existsSync(this.configDir)) {
+      fs.mkdirSync(this.configDir, { recursive: true });
+    }
     if (!fs.existsSync(this.scriptsDir)) {
       fs.mkdirSync(this.scriptsDir, { recursive: true });
     }
     if (!fs.existsSync(this.scriptsConfigDir)) {
       fs.mkdirSync(this.scriptsConfigDir, { recursive: true });
+    }
+  }
+
+  private listScriptNames(): string[] {
+    this.ensureScriptDirs();
+    try {
+      const files = fs.readdirSync(this.scriptsDir);
+      return files
+        .filter((f: string) => f.endsWith(".json") && !f.startsWith("_"))
+        .map((f: string) => f.replace(".json", ""));
+    } catch {
+      return [];
+    }
+  }
+
+  private normalizeHotkeySlots(raw: any): AutomationHotkeySlots {
+    const scripts = new Set(this.listScriptNames());
+    const slots = createEmptyHotkeySlots();
+
+    for (const key of AUTOMATION_HOTKEY_KEYS) {
+      const value = raw?.[key];
+      slots[key] = typeof value === "string" && scripts.has(value) ? value : null;
+    }
+
+    return slots;
+  }
+
+  private writeHotkeySlots(slots: AutomationHotkeySlots): void {
+    this.ensureScriptDirs();
+    fs.writeFileSync(
+      this.hotkeySlotsPath,
+      JSON.stringify(slots, null, 2),
+      "utf-8",
+    );
+    this.mainWindow()?.webContents.send(
+      "automation-hotkey-slots-changed",
+      slots,
+    );
+  }
+
+  getHotkeySlots(): AutomationHotkeySlots {
+    this.ensureScriptDirs();
+    if (!fs.existsSync(this.hotkeySlotsPath)) {
+      return createEmptyHotkeySlots();
+    }
+
+    try {
+      let content = fs.readFileSync(this.hotkeySlotsPath, "utf-8");
+      if (content.charCodeAt(0) === 0xFEFF) {
+        content = content.slice(1);
+      }
+      return this.normalizeHotkeySlots(JSON.parse(content));
+    } catch (e) {
+      console.error("Error reading automation hotkey slots:", e);
+      return createEmptyHotkeySlots();
+    }
+  }
+
+  saveHotkeySlots(
+    slots: AutomationHotkeySlots,
+  ): { success: boolean; error?: string; slots?: AutomationHotkeySlots } {
+    try {
+      const normalizedSlots = this.normalizeHotkeySlots(slots);
+      this.writeHotkeySlots(normalizedSlots);
+      return { success: true, slots: normalizedSlots };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  }
+
+  private clearScriptFromHotkeySlots(name: string): void {
+    const slots = this.getHotkeySlots();
+    let changed = false;
+
+    for (const key of AUTOMATION_HOTKEY_KEYS) {
+      if (slots[key] === name) {
+        slots[key] = null;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      this.writeHotkeySlots(slots);
     }
   }
 
@@ -140,9 +255,11 @@ export class AutomationManager {
   private setupProcessHandlers(): void {
     if (!this.automationProcess) return;
 
+    const activeProcess = this.automationProcess;
     this.stdoutBuffer = "";
 
-    this.automationProcess.stdout?.on("data", (data: Buffer) => {
+    activeProcess.stdout?.on("data", (data: Buffer) => {
+      if (this.automationProcess !== activeProcess) return;
       this.stdoutBuffer += data.toString();
 
       const lines = this.stdoutBuffer.split(/\r?\n/);
@@ -181,12 +298,17 @@ export class AutomationManager {
       }
     });
 
-    this.automationProcess.stderr?.on("data", (data: Buffer) => {
+    activeProcess.stderr?.on("data", (data: Buffer) => {
+      if (this.automationProcess !== activeProcess) return;
       console.error("Automation stderr:", data.toString());
     });
 
-    this.automationProcess.on("exit", () => {
+    activeProcess.on("exit", () => {
+      if (this.automationProcess !== activeProcess) return;
       this.automationProcess = null;
+      this.currentPlayingScriptPath = null;
+      this.currentRecordingScriptPath = null;
+      this.activeHotkeySlot = null;
       this.stdoutBuffer = "";
       this.mainWindow()?.webContents.send("automation-status", "STATUS|PROCESS_EXIT");
     });
@@ -195,6 +317,8 @@ export class AutomationManager {
   async startRecord(name: string): Promise<{ success: boolean; error?: string }> {
     this.ensureScriptDirs();
     this.killAutomationProcess();
+    this.currentPlayingScriptPath = null;
+    this.activeHotkeySlot = null;
     const scriptPath = path.join(this.scriptsDir, `${name}.json`);
     this.currentRecordingScriptPath = scriptPath;
 
@@ -247,7 +371,10 @@ export class AutomationManager {
     return { success: true };
   }
 
-  async startPlay(name: string): Promise<{ success: boolean; error?: string }> {
+  async startPlay(
+    name: string,
+    hotkeySlot: AutomationHotkeyKey | null = null,
+  ): Promise<{ success: boolean; error?: string }> {
     this.ensureScriptDirs();
 
     const scriptPath = path.join(this.scriptsDir, `${name}.json`);
@@ -267,6 +394,8 @@ export class AutomationManager {
     }
 
     this.killAutomationProcess();
+    this.activeHotkeySlot = null;
+    this.currentRecordingScriptPath = null;
 
     try {
       const runtime = this.getAutomationRuntime();
@@ -278,6 +407,7 @@ export class AutomationManager {
       }
 
       this.currentPlayingScriptPath = scriptPath;
+      this.activeHotkeySlot = hotkeySlot;
       const args = [
         ...runtime.args,
         "play",
@@ -298,20 +428,78 @@ export class AutomationManager {
   }
 
   async stopPlay(): Promise<{ success: boolean }> {
+    const stoppedHotkeySlot = this.activeHotkeySlot;
     this.killAutomationProcess();
+    this.currentPlayingScriptPath = null;
+    this.activeHotkeySlot = null;
+    if (stoppedHotkeySlot) {
+      this.mainWindow()?.webContents.send(
+        "automation-status",
+        `STATUS|HOTKEY_SLOT_STOPPED|${stoppedHotkeySlot}`,
+      );
+    }
     return { success: true };
   }
 
-  async listScripts(): Promise<string[]> {
-    this.ensureScriptDirs();
-    try {
-      const files = fs.readdirSync(this.scriptsDir);
-      return files
-        .filter((f: string) => f.endsWith(".json") && !f.startsWith("_"))
-        .map((f: string) => f.replace(".json", ""));
-    } catch {
-      return [];
+  async handleHotkeySlotPress(
+    key: AutomationHotkeyKey,
+  ): Promise<AutomationHotkeyPressResult> {
+    const slots = this.getHotkeySlots();
+    const scriptName = slots[key];
+
+    if (!scriptName) {
+      return { handled: false, success: true, action: "empty", key };
     }
+
+    if (this.currentRecordingScriptPath) {
+      this.mainWindow()?.webContents.send(
+        "automation-status",
+        `STATUS|HOTKEY_SLOT_IGNORED|${key}|RECORDING`,
+      );
+      return {
+        handled: true,
+        success: false,
+        action: "ignored",
+        key,
+        scriptName,
+        error: "Recording is active",
+      };
+    }
+
+    if (this.automationProcess && !this.automationProcess.killed) {
+      if (this.currentPlayingScriptPath && this.activeHotkeySlot === key) {
+        await this.stopPlay();
+        return { handled: true, success: true, action: "stop", key, scriptName };
+      }
+
+      this.mainWindow()?.webContents.send(
+        "automation-status",
+        `STATUS|HOTKEY_SLOT_IGNORED|${key}|${this.activeHotkeySlot ?? "MANUAL"}`,
+      );
+      return { handled: true, success: true, action: "ignored", key, scriptName };
+    }
+
+    const result = await this.startPlay(scriptName, key);
+    if (result.success) {
+      this.mainWindow()?.webContents.send(
+        "automation-status",
+        `STATUS|HOTKEY_SLOT_STARTED|${key}|${encodeURIComponent(scriptName)}`,
+      );
+      return { handled: true, success: true, action: "start", key, scriptName };
+    }
+
+    return {
+      handled: true,
+      success: false,
+      action: "start",
+      key,
+      scriptName,
+      error: result.error,
+    };
+  }
+
+  async listScripts(): Promise<string[]> {
+    return this.listScriptNames();
   }
 
   async deleteScript(
@@ -323,6 +511,7 @@ export class AutomationManager {
     try {
       if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
       if (fs.existsSync(cfgPath)) fs.unlinkSync(cfgPath);
+      this.clearScriptFromHotkeySlots(name);
       return { success: true };
     } catch (e: any) {
       return { success: false, error: e.message };
@@ -449,6 +638,18 @@ export class AutomationManager {
     ipcMain.handle("automation-list-scripts", async () => {
       return this.listScripts();
     });
+
+    // Automation Hotkey Slots
+    ipcMain.handle("automation-get-hotkey-slots", async () => {
+      return this.getHotkeySlots();
+    });
+
+    ipcMain.handle(
+      "automation-save-hotkey-slots",
+      async (_event, slots: AutomationHotkeySlots) => {
+        return this.saveHotkeySlots(slots);
+      },
+    );
 
     // Delete Script
     ipcMain.handle("automation-delete-script", async (_event, name: string) => {

@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld("electron", {
   ocrGetStatus: () => ipcRenderer.invoke("ocr-get-status"),
   ocrInstall: () => ipcRenderer.invoke("ocr-install"),
   ocrUninstall: () => ipcRenderer.invoke("ocr-uninstall"),
+  checkUpdate: () => ipcRenderer.invoke("check-update"),
   downloadUpdate: (url: string) => ipcRenderer.invoke("download-update", url),
   onUpdateProgress: (callback: (percent: number) => void) => {
     ipcRenderer.on("update-progress", (_event, percent) => callback(percent));
@@ -49,6 +50,19 @@ contextBridge.exposeInMainWorld("electron", {
       ipcRenderer.invoke("automation-start-play", name),
     stopPlay: () => ipcRenderer.invoke("automation-stop-play"),
     listScripts: () => ipcRenderer.invoke("automation-list-scripts"),
+    getHotkeySlots: () =>
+      ipcRenderer.invoke("automation-get-hotkey-slots"),
+    saveHotkeySlots: (slots: any) =>
+      ipcRenderer.invoke("automation-save-hotkey-slots", slots),
+    onHotkeySlotsChanged: (callback: (slots: any) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, slots: any) => {
+        callback(slots);
+      };
+      ipcRenderer.on("automation-hotkey-slots-changed", listener);
+      return () => {
+        ipcRenderer.removeListener("automation-hotkey-slots-changed", listener);
+      };
+    },
     deleteScript: (name: string) =>
       ipcRenderer.invoke("automation-delete-script", name),
     saveConfig: (name: string, config: any) =>
@@ -125,5 +139,14 @@ contextBridge.exposeInMainWorld("electron", {
     setSpeed: (multiplier: number) =>
       ipcRenderer.invoke("speed-set", multiplier),
     getStatus: () => ipcRenderer.invoke("speed-status"),
+    onShortcut: (callback: (key: "F1" | "F2") => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, key: "F1" | "F2") => {
+        callback(key);
+      };
+      ipcRenderer.on("speed-shortcut", listener);
+      return () => {
+        ipcRenderer.removeListener("speed-shortcut", listener);
+      };
+    },
   },
 });

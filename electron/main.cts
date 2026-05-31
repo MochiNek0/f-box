@@ -7,6 +7,7 @@ import { WindowManager } from "./window-manager.cjs";
 import { ShortcutManager } from "./shortcut-manager.cjs";
 import { ConfigManager } from "./config-manager.cjs";
 import { AutomationManager } from "./automation-manager.cjs";
+import type { AutomationHotkeyKey } from "./automation-manager.cjs";
 import { UpdateManager } from "./update-manager.cjs";
 import { SpeedManager } from "./speed-manager.cjs";
 
@@ -96,6 +97,79 @@ let speedManager: SpeedManager | null = null;
 
 // Get window reference (used by multiple managers)
 const getWindow = () => windowManager?.getWindow() || null;
+const inputHotkeyContents = new WeakSet<Electron.WebContents>();
+
+function normalizeAutomationHotkey(key: string): AutomationHotkeyKey | null {
+  if (key === "F3" || key === "F4" || key === "F5") {
+    return key;
+  }
+  return null;
+}
+
+function normalizeSpeedHotkey(key: string): "F1" | "F2" | null {
+  if (key === "F1" || key === "F2") {
+    return key;
+  }
+  return null;
+}
+
+function hasModifier(input: any): boolean {
+  return Boolean(input.control || input.ctrl || input.shift || input.alt || input.meta);
+}
+
+function attachInputHotkeyHandler(contents: Electron.WebContents): void {
+  if (inputHotkeyContents.has(contents)) {
+    return;
+  }
+  inputHotkeyContents.add(contents);
+
+  contents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown" || input.isAutoRepeat || hasModifier(input)) {
+      return;
+    }
+
+    const speedHotkey = normalizeSpeedHotkey(input.key);
+    if (speedHotkey) {
+      event.preventDefault();
+      getWindow()?.webContents.send("speed-shortcut", speedHotkey);
+      return;
+    }
+
+    if (!automationManager) {
+      return;
+    }
+
+    const hotkey = normalizeAutomationHotkey(input.key);
+    if (!hotkey) {
+      return;
+    }
+
+    const slots = automationManager.getHotkeySlots();
+    if (!slots[hotkey]) {
+      return;
+    }
+
+    event.preventDefault();
+    automationManager.handleHotkeySlotPress(hotkey).catch((error) => {
+      console.error("Automation hotkey failed:", error);
+    });
+  });
+}
+
+function setupInputHotkeyHandler(): void {
+  const mainWindow = getWindow();
+  if (mainWindow) {
+    attachInputHotkeyHandler(mainWindow.webContents);
+  }
+
+  app.on("web-contents-created", (_event, contents) => {
+    const type =
+      typeof contents.getType === "function" ? contents.getType() : "";
+    if (type === "webview" || type === "window") {
+      attachInputHotkeyHandler(contents);
+    }
+  });
+}
 
 app.on("ready", () => {
   // Initialize all managers
@@ -127,6 +201,7 @@ app.on("ready", () => {
   setupFlashPIDHandler();
   setupOCRHandlers();
   setupAutomationOCRHandler();
+  setupInputHotkeyHandler();
 });
 
 // ---------------------------------------------------------------

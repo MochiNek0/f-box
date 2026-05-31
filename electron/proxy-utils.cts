@@ -100,9 +100,16 @@ function normalizeGitHubUrl(url: string): string {
  */
 function isGitHubUrl(url: string): boolean {
   const cleanUrl = normalizeGitHubUrl(url);
+  const isReleaseApi =
+    cleanUrl.includes("api.github.com") &&
+    cleanUrl.includes("/repos/") &&
+    cleanUrl.includes("/releases");
+
   return (
-    cleanUrl.includes("github.com") &&
-    (cleanUrl.includes("/releases/download/") || cleanUrl.includes("/archive/"))
+    (cleanUrl.includes("github.com") &&
+      (cleanUrl.includes("/releases/download/") ||
+        cleanUrl.includes("/archive/"))) ||
+    isReleaseApi
   );
 }
 

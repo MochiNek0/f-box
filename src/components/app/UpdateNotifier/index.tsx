@@ -1,16 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { X, Download, FolderOpen } from "lucide-react";
 
-interface GithubReleaseAsset {
-  name: string;
-  browser_download_url: string;
-}
-
-interface GithubRelease {
-  tag_name?: string;
-  assets?: GithubReleaseAsset[];
-}
-
 export const UpdateNotifier: React.FC = () => {
   const [updateInfo, setUpdateInfo] = useState<{
     version: string;
@@ -25,65 +15,14 @@ export const UpdateNotifier: React.FC = () => {
   useEffect(() => {
     const checkUpdate = async () => {
       try {
-        const currentVersion = await window.electron.getAppVersion();
+        const result = await window.electron.checkUpdate();
 
-        // Use an AbortController for setting a timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
-
-        const response = await fetch(
-          "https://api.github.com/repos/MochiNek0/f-box/releases/latest",
-          {
-            signal: controller.signal,
-          },
-        );
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) return;
-
-        const data = (await response.json()) as GithubRelease;
-        const latestVersionStr = data.tag_name || "";
-
-        // Find zip asset
-        const zipAsset = data.assets?.find((asset) =>
-          asset.name.toLowerCase().endsWith(".zip"),
-        );
-        const downloadUrl = zipAsset?.browser_download_url;
-
-        if (!downloadUrl) return;
-
-        // Simple version comparison. Assumes tags like 'v1.0.0' or '1.0.0'
-        const cleanLatest = latestVersionStr.replace(/^v/, "");
-        const cleanCurrent = currentVersion.replace(/^v/, "");
-
-        // Basic string/numeric comparison for major.minor.patch
-        const parseVersion = (v: string) => v.split(".").map(Number);
-        const latestParts = parseVersion(cleanLatest);
-        const currentParts = parseVersion(cleanCurrent);
-
-        let isNewer = false;
-        for (
-          let i = 0;
-          i < Math.max(latestParts.length, currentParts.length);
-          i++
-        ) {
-          const l = latestParts[i] || 0;
-          const c = currentParts[i] || 0;
-          if (l > c) {
-            isNewer = true;
-            break;
-          } else if (l < c) {
-            break;
-          }
-        }
-
-        if (isNewer) {
-          setUpdateInfo({ version: latestVersionStr, url: downloadUrl });
+        if (result.available && result.version && result.url) {
+          setUpdateInfo({ version: result.version, url: result.url });
           setIsVisible(true);
         }
       } catch (error) {
-        // Silently catch errors (e.g. network timeout or blocked by firewall)
+        // Silently catch errors (e.g. network timeout or blocked by firewall).
         console.info("Update check skipped due to network or timeout:", error);
       }
     };
