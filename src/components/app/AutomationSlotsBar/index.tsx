@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
+import { IconButton } from "../../common/IconButton";
 import type {
   AutomationHotkeyKey,
   AutomationHotkeySlots,
@@ -31,11 +32,13 @@ const reconcileSlots = (
 
 export const AutomationSlotsBar: React.FC = () => {
   const [scripts, setScripts] = useState<string[]>([]);
-  const [slots, setSlots] = useState<AutomationHotkeySlots>(
-    createEmptySlots,
+  const [slots, setSlots] = useState<AutomationHotkeySlots>(createEmptySlots);
+  const [runningSlot, setRunningSlot] = useState<AutomationHotkeyKey | null>(
+    null,
   );
-  const [runningSlot, setRunningSlot] =
-    useState<AutomationHotkeyKey | null>(null);
+  const [savingSlot, setSavingSlot] = useState<AutomationHotkeyKey | null>(
+    null,
+  );
   const [message, setMessage] = useState("");
 
   const refreshData = useCallback(async () => {
@@ -100,10 +103,11 @@ export const AutomationSlotsBar: React.FC = () => {
       }
     });
 
-    const detachSlotsChanged =
-      window.electron.automation.onHotkeySlotsChanged(() => {
+    const detachSlotsChanged = window.electron.automation.onHotkeySlotsChanged(
+      () => {
         void refreshData();
-      });
+      },
+    );
 
     return () => {
       detachStatus();
@@ -111,50 +115,70 @@ export const AutomationSlotsBar: React.FC = () => {
     };
   }, [refreshData]);
 
-  const handleSlotChange = async (
-    key: AutomationHotkeyKey,
-    value: string,
-  ) => {
+  const handleSlotChange = async (key: AutomationHotkeyKey, value: string) => {
     const nextSlots = {
       ...slots,
       [key]: value || null,
     };
     setSlots(nextSlots);
+    setSavingSlot(key);
 
-    const result = await window.electron.automation.saveHotkeySlots(nextSlots);
-    if (result.success) {
-      setSlots(result.slots ?? nextSlots);
-      setMessage(value ? `${key}: ${value}` : `${key}: empty`);
-    } else {
-      setMessage(result.error ?? "Failed to save slot");
+    try {
+      const result = await window.electron.automation.saveHotkeySlots(nextSlots);
+      if (result.success) {
+        setSlots(result.slots ?? nextSlots);
+        setMessage(value ? `${key}: ${value}` : `${key}: empty`);
+      } else {
+        setMessage(result.error ?? "Failed to save slot");
+        void refreshData();
+      }
+    } catch {
+      setMessage("Failed to save slot");
       void refreshData();
+    } finally {
+      setSavingSlot(null);
     }
   };
 
   return (
-    <div className="flex-shrink-0 h-gr-5 flex items-center gap-gr-2 border-l border-border pl-gr-2 pr-gr-3 bg-background/95 max-md:max-w-[56vw] overflow-x-auto no-scrollbar">
+    <div className="flex-shrink-0 h-10 flex items-center gap-2 pl-1 pr-2.5 bg-background/95 max-lg:max-w-[46vw] overflow-x-auto no-scrollbar">
       {HOTKEY_KEYS.map((key) => {
         const scriptName = slots[key];
         const isRunning = runningSlot === key;
+        const isSaving = savingSlot === key;
+        const hasScript = Boolean(scriptName);
 
         return (
           <div
             key={key}
-            className={`h-8 min-w-[132px] max-w-[160px] flex items-center gap-1.5 rounded-gr-2 border px-1.5 transition-all ${
+            className={`group h-8 min-w-[112px] max-w-[148px] flex items-center gap-1 rounded-gr-2 px-1.5 transition-all ${
               isRunning
-                ? "border-primary/50 bg-primary/10 shadow-[0_0_12px_rgba(var(--primary),0.18)]"
-                : "border-white/5 bg-white/[0.03] hover:bg-white/[0.06]"
+                ? "bg-primary/[0.12] shadow-[0_0_14px_hsl(var(--primary)_/_0.22)]"
+                : hasScript
+                  ? "bg-white/[0.045] hover:bg-white/[0.075]"
+                  : "bg-white/[0.018] hover:bg-white/[0.045]"
             }`}
             title={scriptName ? `${key}: ${scriptName}` : `${key}: empty`}
           >
-            <div className="w-8 h-5 flex-shrink-0 rounded-gr-1 bg-zinc-900/70 border border-white/10 text-[10px] font-black text-primary flex items-center justify-center font-mono">
+            <div
+              className={`w-7 h-5 flex-shrink-0 rounded-gr-1 text-[10px] font-black flex items-center justify-center font-mono ${
+                isRunning
+                  ? "bg-primary/[0.2] text-primary"
+                  : hasScript
+                    ? "bg-zinc-900/80 text-zinc-200"
+                    : "bg-zinc-900/50 text-zinc-600"
+              }`}
+            >
               {key}
             </div>
 
             <select
               value={scriptName ?? ""}
               onChange={(event) => handleSlotChange(key, event.target.value)}
-              className="min-w-0 flex-1 bg-transparent text-[10px] font-bold text-zinc-300 border-none outline-none cursor-pointer truncate"
+              disabled={isSaving}
+              className={`min-w-0 flex-1 bg-transparent text-[10px] font-bold border-none outline-none cursor-pointer truncate focus:text-zinc-100 disabled:cursor-wait ${
+                hasScript ? "text-zinc-300" : "text-zinc-600"
+              }`}
               aria-label={`${key} automation slot`}
             >
               <option value="" className="bg-zinc-900 text-zinc-400">
@@ -171,19 +195,30 @@ export const AutomationSlotsBar: React.FC = () => {
               ))}
             </select>
 
-            {isRunning && (
-              <span className="w-1.5 h-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(var(--primary),0.8)] flex-shrink-0" />
+            {isSaving ? (
+              <Loader2
+                size={12}
+                className="flex-shrink-0 animate-spin text-zinc-500"
+              />
+            ) : isRunning ? (
+              <span className="w-1.5 h-1.5 rounded-full bg-primary shadow-[0_0_8px_hsl(var(--primary)_/_0.8)] flex-shrink-0 animate-pulse" />
+            ) : (
+              <span
+                className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                  hasScript ? "bg-emerald-400/70" : "bg-zinc-700"
+                }`}
+              />
             )}
 
-            <button
+            <IconButton
               type="button"
+              icon={<X size={12} />}
               onClick={() => handleSlotChange(key, "")}
-              disabled={!scriptName}
-              className="w-5 h-5 flex-shrink-0 rounded-gr-1 flex items-center justify-center text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-all disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-500"
+              disabled={!scriptName || isSaving}
+              size="sm"
+              className="w-5 h-5 flex-shrink-0 rounded-gr-1 flex items-center justify-center text-zinc-500 opacity-70 transition-all hover:text-red-400 hover:bg-red-500/10 hover:opacity-100 disabled:pointer-events-none disabled:opacity-25 !outline-none"
               title="清空槽位"
-            >
-              <X size={12} />
-            </button>
+            />
           </div>
         );
       })}

@@ -14,7 +14,7 @@ export const IconButton: React.FC<IconButtonProps> = ({
   ...props
 }) => {
   const baseStyles =
-    "rounded-gr-1 transition-all outline-none focus:outline-none focus:ring-0 focus-visible:outline-none flex items-center justify-center smooth-transition";
+    "inline-flex items-center justify-center rounded-gr-2 transition-all outline-none disabled:opacity-50 disabled:cursor-not-allowed smooth-transition";
 
   const variantStyles = {
     default: "bg-transparent hover:bg-white/10 text-zinc-400 hover:text-foreground",
@@ -24,9 +24,9 @@ export const IconButton: React.FC<IconButtonProps> = ({
   };
 
   const sizeStyles = {
-    sm: "p-gr-1",
-    md: "p-gr-2",
-    lg: "p-gr-3",
+    sm: "h-6 w-6",
+    md: "h-8 w-8",
+    lg: "h-10 w-10",
   };
 
   return (

@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { X } from "lucide-react";
+import { Button } from "../../../common/Button";
 import { IconButton } from "../../../common/IconButton";
 import { KEY_GROUPS } from "../constants";
 
@@ -53,14 +54,16 @@ export const KeySelectorDropdown: React.FC<KeySelectorDropdownProps> = ({
             </h3>
             <div className="grid grid-cols-4 gap-gr-1">
               {keys.map((key) => (
-                <button
+                <Button
                   key={key}
                   onClick={() => onSelect(key)}
-                  className="px-1 py-1.5 bg-white/5 hover:bg-primary hover:text-black rounded-gr-1 text-[10px] font-bold text-zinc-400 transition-all truncate uppercase tracking-tighter"
+                  variant="ghost"
+                  size="sm"
+                  className="min-h-0 px-1 py-1.5 bg-white/5 hover:bg-primary hover:text-black rounded-gr-1 text-[10px] text-zinc-400 truncate"
                   title={key}
                 >
                   {key}
-                </button>
+                </Button>
               ))}
             </div>
           </div>

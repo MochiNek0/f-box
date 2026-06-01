@@ -125,18 +125,19 @@ export const SpeedTab: React.FC = () => {
 
         <div className="grid grid-cols-7 gap-gr-2">
           {SPEED_PRESETS.map((preset) => (
-            <button
+            <Button
               key={preset.value}
               onClick={() => handleSetSpeed(preset.value)}
               disabled={isLoading}
-              className={`h-10 rounded-gr-2 text-sm font-black uppercase tracking-tighter transition-all border disabled:opacity-50 ${
+              variant="secondary"
+              className={`h-10 rounded-gr-2 text-sm border ${
                 speed === preset.value
                   ? "bg-primary/20 border-primary text-primary shadow-[0_0_15px_rgba(var(--primary),0.15)]"
                   : "bg-white/5 border-white/10 text-zinc-400 hover:border-primary/50 hover:text-zinc-200"
               }`}
             >
               {preset.label}
-            </button>
+            </Button>
           ))}
         </div>
 

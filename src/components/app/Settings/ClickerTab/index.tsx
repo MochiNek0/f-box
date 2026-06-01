@@ -451,7 +451,7 @@ export const ClickerTab: React.FC = () => {
                   <span className="text-[10px] text-zinc-500 font-black uppercase tracking-tighter">按键</span>
                   
                   <div className="relative">
-                    <button
+                    <Button
                       disabled={isPlaying}
                       onContextMenu={(e) => {
                         e.preventDefault();
@@ -463,14 +463,16 @@ export const ClickerTab: React.FC = () => {
                         }
                       }}
                       onClick={() => !isPlaying && setRecordingIndex({ id: step.id })}
-                      className={`min-w-[72px] h-gr-4 border rounded-gr-1 px-gr-3 flex items-center justify-center text-[10px] font-mono transition-all disabled:opacity-50 uppercase tracking-tighter font-black shadow-lg ${
+                      variant="secondary"
+                      size="sm"
+                      className={`min-w-[72px] h-gr-4 border rounded-gr-1 px-gr-3 text-[10px] font-mono disabled:opacity-50 shadow-lg ${
                         recordingIndex?.id === step.id
                           ? "border-primary bg-primary/10 text-primary shadow-[0_0_15px_rgba(var(--primary),0.1)]"
                           : "bg-white/5 border-border hover:border-primary text-primary"
                       }`}
                     >
                       {recordingIndex?.id === step.id ? "请按键..." : (formatKeyDisplay(step.key) || "选择")}
-                    </button>
+                    </Button>
 
                     {/* Key Selector Dropdown */}
                     {selectorState?.isOpen && selectorState.id === step.id && (

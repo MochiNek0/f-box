@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Check, X } from "lucide-react";
+import { Button } from "../../common/Button";
+import { IconButton } from "../../common/IconButton";
 
 interface OCRSelectionOverlayProps {
   onComplete: (data: {
@@ -101,7 +103,7 @@ export const OCRSelectionOverlay: React.FC<OCRSelectionOverlayProps> = ({
 
       {rect && (
         <div
-          className="absolute border-2 border-accent ring-1 ring-white/20 shadow-[0_0_0_9999px_rgba(0,0,0,0.4)] transition-none shadow-accent/20"
+          className="absolute border-2 border-accent shadow-[0_0_0_9999px_rgba(0,0,0,0.4)] transition-none shadow-accent/20"
           style={{
             left: rect.x,
             top: rect.y,
@@ -124,19 +126,22 @@ export const OCRSelectionOverlay: React.FC<OCRSelectionOverlayProps> = ({
                 className="w-full bg-white/5 border border-border rounded-gr-2 px-gr-3 py-gr-2 text-sm text-zinc-100 focus:outline-none focus:border-accent transition-all"
               />
               <div className="flex gap-gr-3 mt-gr-4 justify-end">
-                <button
+                <Button
                   onClick={onCancel}
-                  className="px-gr-3 py-gr-2 text-xs text-zinc-500 hover:text-foreground font-bold uppercase tracking-tighter smooth-transition"
+                  variant="ghost"
+                  size="sm"
+                  className="text-zinc-500 hover:text-foreground"
                 >
                   取消
-                </button>
-                <button
+                </Button>
+                <Button
                   onClick={handleConfirm}
-                  className="flex items-center gap-gr-2 premium-gradient shadow-lg shadow-primary/20 px-gr-4 py-gr-2 rounded-gr-2 text-xs font-black text-white hover:opacity-90 smooth-transition"
+                  size="sm"
+                  className="gap-gr-2 px-gr-4"
                 >
                   <Check size={14} />
                   确认设置
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -149,12 +154,11 @@ export const OCRSelectionOverlay: React.FC<OCRSelectionOverlayProps> = ({
         </div>
       )}
 
-      <button
+      <IconButton
+        icon={<X size={20} />}
         onClick={onCancel}
-        className="absolute top-6 right-6 p-2 bg-black/60 hover:bg-black/80 rounded-full text-white/60 hover:text-white transition-colors"
-      >
-        <X size={20} />
-      </button>
+        className="absolute top-6 right-6 bg-black/60 hover:bg-black/80 rounded-full text-white/60 hover:text-white"
+      />
     </div>
   );
 };

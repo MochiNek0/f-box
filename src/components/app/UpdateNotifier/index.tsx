@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { X, Download, FolderOpen } from "lucide-react";
+import { Button } from "../../common/Button";
+import { IconButton } from "../../common/IconButton";
 
 export const UpdateNotifier: React.FC = () => {
   const [updateInfo, setUpdateInfo] = useState<{
@@ -70,12 +72,12 @@ export const UpdateNotifier: React.FC = () => {
       <div className="flex justify-between items-start">
         <h3 className="font-black text-[10px] uppercase tracking-widest text-zinc-500">发现新版本</h3>
         {!isDownloading && !downloaded && (
-          <button
+          <IconButton
+            icon={<X size={16} />}
             onClick={() => setIsVisible(false)}
-            className="text-zinc-600 hover:text-foreground transition-colors p-1 -mr-1 -mt-1 rounded focus:outline-none"
-          >
-            <X size={16} />
-          </button>
+            size="sm"
+            className="text-zinc-600 hover:text-foreground -mr-1 -mt-1"
+          />
         )}
       </div>
 
@@ -113,30 +115,35 @@ export const UpdateNotifier: React.FC = () => {
 
       {!isDownloading && !downloaded && (
         <div className="flex justify-end gap-gr-2 mt-gr-1">
-          <button
+          <Button
             onClick={() => setIsVisible(false)}
-            className="px-gr-3 py-gr-2 text-[10px] font-black text-zinc-500 hover:text-foreground uppercase tracking-widest transition-colors"
+            variant="ghost"
+            size="sm"
+            className="text-zinc-500 hover:text-foreground"
           >
             稍后
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={handleDownload}
-            className="flex items-center justify-center gap-gr-2 px-gr-4 py-gr-2 text-[10px] font-black bg-primary text-black rounded-gr-2 shadow-lg transition-all uppercase tracking-tighter"
+            size="sm"
+            className="gap-gr-2 px-gr-4 text-black"
           >
             <Download size={13} strokeWidth={3} />
             <span>下载更新</span>
-          </button>
+          </Button>
         </div>
       )}
 
       {downloaded && (
         <div className="flex justify-end mt-gr-1">
-          <button
+          <Button
             onClick={() => setIsVisible(false)}
-            className="px-gr-3 py-gr-2 text-[10px] font-black text-zinc-500 hover:text-foreground uppercase tracking-widest transition-colors"
+            variant="ghost"
+            size="sm"
+            className="text-zinc-500 hover:text-foreground"
           >
             关闭
-          </button>
+          </Button>
         </div>
       )}
     </div>

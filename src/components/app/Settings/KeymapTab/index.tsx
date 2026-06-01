@@ -389,9 +389,11 @@ export const KeymapTab: React.FC = () => {
           </div>
         ))}
 
-        <button
+        <Button
           onClick={addMapping}
-          className="w-full h-gr-5 border-2 border-dashed border-white/5 hover:border-primary/30 hover:bg-primary/5 text-zinc-500 hover:text-primary rounded-gr-3 flex items-center justify-center gap-gr-2 transition-all group bg-transparent outline-none"
+          variant="ghost"
+          fullWidth
+          className="h-gr-5 border-2 border-dashed border-white/5 hover:border-primary/30 hover:bg-primary/5 text-zinc-500 hover:text-primary rounded-gr-3 gap-gr-2 group bg-transparent"
         >
           <Plus
             size={18}
@@ -400,7 +402,7 @@ export const KeymapTab: React.FC = () => {
           <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 group-hover:text-primary">
             添加新映射
           </span>
-        </button>
+        </Button>
       </div>
 
       {keymapConfig.mappings.length > 0 && (

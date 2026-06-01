@@ -2,6 +2,7 @@ import React, { useState, useCallback } from "react";
 import { Download, AlertCircle, ExternalLink, X, ZoomIn } from "lucide-react";
 import { Modal } from "../../common/Modal";
 import { Button } from "../../common/Button";
+import { IconButton } from "../../common/IconButton";
 import tutorialImage from "../../../assets/tutorial.webp";
 
 export const FlashTutorial: React.FC = () => {
@@ -145,7 +146,6 @@ export const FlashTutorial: React.FC = () => {
                       alt="Flash 下载教程"
                       className="w-full h-auto object-cover opacity-90 group-hover:opacity-100 transition-opacity"
                     />
-                    <div className="absolute inset-0 ring-1 ring-inset ring-white/10 rounded-2xl pointer-events-none" />
                     <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/20 rounded-2xl">
                       <div className="bg-black/60 rounded-full p-2">
                         <ZoomIn size={20} className="text-white" />
@@ -193,13 +193,13 @@ export const FlashTutorial: React.FC = () => {
           className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm"
           onClick={handleClosePreview}
         >
-          <button
-            className="absolute top-4 right-4 p-2 rounded-full bg-zinc-800 hover:bg-zinc-700 transition-colors text-zinc-300 hover:text-white outline-none"
+          <IconButton
+            icon={<X size={22} />}
+            size="md"
+            className="absolute top-4 right-4 rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white"
             onClick={handleClosePreview}
             aria-label="关闭预览"
-          >
-            <X size={22} />
-          </button>
+          />
           <img
             src={tutorialImage}
             alt="Flash 下载教程"

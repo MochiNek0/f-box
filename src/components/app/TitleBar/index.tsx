@@ -146,21 +146,21 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
 
   return (
     <div
-      className="h-gr-5 flex items-center justify-between select-none relative z-50 px-gr-3"
+      className="h-10 min-h-10 flex items-center justify-between select-none relative z-50 px-2 border-b border-white/5"
       style={dragStyle}
     >
       <div className="absolute inset-0 glass -z-10" />
-      <div className="flex items-center gap-gr-3 min-w-0">
-        <div className="w-gr-4 h-gr-4 premium-gradient rounded-gr-2 flex items-center justify-center flex-shrink-0 shadow-lg shadow-primary/20">
+      <div className="flex flex-1 items-center gap-2 min-w-0">
+        <div className="w-7 h-7 premium-gradient rounded-gr-2 flex items-center justify-center flex-shrink-0 shadow-lg shadow-primary/20">
           <span className="text-white text-[10px] font-bold">F</span>
         </div>
 
         <div
-          className="flex items-center gap-gr-1 px-gr-1 py-0.5 bg-white/5 rounded-full border border-white/10 no-drag ml-gr-2 shadow-sm"
+          className="relative no-drag ml-1 flex min-w-0 items-center gap-1 px-1 py-1"
           style={noDragStyle}
         >
           <div
-            className={`p-1 rounded-full transition-colors ${
+            className={`h-6 w-6 inline-flex items-center justify-center rounded-gr-2 transition-colors ${
               isSpeedActive
                 ? "text-primary bg-primary/10"
                 : "text-zinc-500 bg-white/5"
@@ -172,7 +172,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
           <select
             value={selectedSpeed}
             onChange={handleSpeedSelect}
-            className="h-5 appearance-none rounded border border-white/10 bg-zinc-900/80 px-2 text-[10px] font-bold text-zinc-100 outline-none transition-colors hover:bg-zinc-800"
+            className="h-6 min-w-[68px] appearance-none rounded-gr-2 border border-white/10 bg-zinc-900/80 px-2 text-[10px] font-bold text-zinc-100 outline-none transition-colors hover:bg-zinc-800 focus:border-primary/50"
             title="待生效倍速"
           >
             {SPEED_PRESETS.map((preset) => (
@@ -195,34 +195,36 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
               inputMode="decimal"
               value={customSpeedInput}
               onChange={handleCustomSpeedChange}
-              className="h-5 w-14 rounded border border-white/10 bg-zinc-900/80 px-1.5 text-center text-[10px] font-bold text-zinc-100 placeholder:text-zinc-500 outline-none transition-colors focus:border-primary/50"
+              className="h-6 w-16 rounded-gr-2 border border-white/10 bg-zinc-900/80 px-1.5 text-center text-[10px] font-bold text-zinc-100 placeholder:text-zinc-500 outline-none transition-colors focus:border-primary/50"
               placeholder="请输入"
               title="自定义待生效倍速"
             />
           )}
 
-          <button
+          <IconButton
+            icon={
+              !isOriginalSpeed ? (
+                <Pause size={10} fill="currentColor" />
+              ) : (
+                <Play size={10} fill="currentColor" />
+              )
+            }
             onClick={() =>
               void (isOriginalSpeed
                 ? applyPendingSpeed()
                 : resetToOriginalSpeed())
             }
             disabled={isSpeedLoading}
-            className={`h-5 w-5 inline-flex items-center justify-center rounded-full transition-colors disabled:opacity-50 ${
+            size="sm"
+            className={`h-6 w-6 inline-flex items-center justify-center rounded-gr-2 transition-colors outline-none disabled:opacity-50 ${
               !isOriginalSpeed
                 ? "bg-red-500/15 text-red-300 hover:bg-red-500/25"
                 : "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
             }`}
             title={isOriginalSpeed ? "启用变速" : "切回原速"}
-          >
-            {!isOriginalSpeed ? (
-              <Pause size={10} fill="currentColor" />
-            ) : (
-              <Play size={10} fill="currentColor" />
-            )}
-          </button>
+          />
 
-          <span className="whitespace-nowrap px-1 text-[10px] font-bold text-zinc-400">
+          <span className="hidden xl:inline-flex max-w-[220px] truncate whitespace-nowrap px-1 text-[10px] font-bold text-zinc-400">
             {isOriginalSpeed
               ? "处于原速 ,按F1变速"
               : "处于变速 ,按F2切原速"}
@@ -236,8 +238,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
         </div>
       </div>
 
-      <div className="flex items-center h-full no-drag" style={noDragStyle}>
-        <div className="flex items-center gap-gr-3 px-gr-4 border-r border-border h-gr-4">
+      <div className="flex h-full flex-shrink-0 items-center gap-1 no-drag" style={noDragStyle}>
+        <div className="hidden sm:flex h-8 items-center gap-2 px-2">
           <SunDim size={14} className="text-zinc-500" />
           <input
             type="range"
@@ -246,9 +248,9 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
             step="0.05"
             value={opacity}
             onChange={handleOpacityChange}
-            className="w-gr-7 premium-slider cursor-pointer outline-none transition-all"
+            className="w-24 premium-slider cursor-pointer outline-none transition-all lg:w-gr-7"
           />
-          <span className="text-[10px] text-zinc-500 w-gr-3 max-md:hidden text-center font-mono">
+          <span className="hidden lg:inline-block text-[10px] text-zinc-500 w-gr-3 text-center font-mono">
             {Math.round(opacity * 100)}%
           </span>
         </div>
@@ -301,17 +303,17 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
         </div>
 
         <IconButton
-          className="max-md:hidden hover:bg-white/10"
+          className="max-md:hidden h-full w-10 rounded-none hover:bg-white/10"
           icon={<Minus size={16} />}
           onClick={() => window.electron.windowControls("minimize")}
         />
         <IconButton
-          className="max-md:hidden hover:bg-white/10"
+          className="max-md:hidden h-full w-10 rounded-none hover:bg-white/10"
           icon={<Square size={12} />}
           onClick={() => window.electron.windowControls("maximize")}
         />
         <IconButton
-          className="max-md:hidden hover:bg-red-500 hover:text-white"
+          className="max-md:hidden h-full w-10 rounded-none hover:bg-red-500 hover:text-white"
           icon={<X size={16} />}
           onClick={() => window.electron.windowControls("close")}
         />

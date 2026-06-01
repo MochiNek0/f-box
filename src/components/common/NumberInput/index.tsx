@@ -1,5 +1,6 @@
 import React from "react";
 import { Plus, Minus } from "lucide-react";
+import { IconButton } from "../IconButton";
 
 interface NumberInputProps extends Omit<
   React.InputHTMLAttributes<HTMLInputElement>,
@@ -63,23 +64,23 @@ export const NumberInput: React.FC<NumberInputProps> = ({
           {...props}
         />
         <div className="absolute right-1 top-1 bottom-1 flex gap-0.5">
-          <button
+          <IconButton
             type="button"
+            icon={<Minus size={14} />}
             onClick={handleDecrement}
-            className="h-full w-8 flex items-center justify-center text-zinc-500 hover:text-zinc-200 hover:bg-white/10 rounded-gr-1 transition-all"
+            size="sm"
+            className="h-full w-8 text-zinc-500 hover:text-zinc-200 hover:bg-white/10 rounded-gr-1"
             title="减少"
-          >
-            <Minus size={14} />
-          </button>
+          />
           <div className="w-[1px] h-4 bg-white/5 self-center" />
-          <button
+          <IconButton
             type="button"
+            icon={<Plus size={14} />}
             onClick={handleIncrement}
-            className="h-full w-8 flex items-center justify-center text-zinc-500 hover:text-primary hover:bg-primary/10 rounded-gr-1 transition-all"
+            size="sm"
+            className="h-full w-8 text-zinc-500 hover:text-primary hover:bg-primary/10 rounded-gr-1"
             title="增加"
-          >
-            <Plus size={14} />
-          </button>
+          />
         </div>
       </div>
     </div>

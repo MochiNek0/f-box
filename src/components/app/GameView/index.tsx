@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { useTabStore } from "../../../store/useTabStore";
 import { ZoomIn, ZoomOut, RefreshCw, ArrowLeft } from "lucide-react";
+import { Button } from "../../common/Button";
 import { IconButton } from "../../common/IconButton";
 
 interface GameViewProps {
@@ -185,12 +186,13 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
             <p className="text-zinc-400 text-sm mb-gr-6 max-w-md">
               由于渲染进程或插件异常，游戏视图已停止响应 ({crashReason})。这通常是由于内存不足或变速器冲突引起的。
             </p>
-            <button
+            <Button
               onClick={handleReload}
-              className="px-gr-6 py-gr-3 bg-primary text-black font-black uppercase tracking-tighter hover:scale-105 transition-transform shadow-[0_0_20px_rgba(var(--primary),0.3)]"
+              size="lg"
+              className="px-gr-6 text-black hover:scale-105 shadow-[0_0_20px_rgba(var(--primary),0.3)]"
             >
               重新加载游戏
-            </button>
+            </Button>
           </div>
         )}
         <div className="w-full h-full flex justify-center">
