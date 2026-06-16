@@ -1,8 +1,18 @@
-import React, { useRef, useEffect, useState, useCallback } from "react";
+import React, {
+  useRef,
+  useEffect,
+  useState,
+  useCallback,
+  useLayoutEffect,
+} from "react";
 import { useTabStore } from "../../../store/useTabStore";
-import { ZoomIn, ZoomOut, RefreshCw, ArrowLeft } from "lucide-react";
+import { ZoomIn, ZoomOut, RefreshCw, ArrowLeft, Monitor } from "lucide-react";
 import { Button } from "../../common/Button";
 import { IconButton } from "../../common/IconButton";
+import {
+  type GameResolutionMode,
+  useSettingsStore,
+} from "../../../store/useSettingsStore";
 
 interface GameViewProps {
   id: string;
@@ -24,16 +34,90 @@ const WEBVIEW_FLASH_PROPS: Record<string, string> = {
   webpreferences: "plugins=yes",
 };
 
+const DEFAULT_GAME_WIDTH = 1280;
+const MAX_GAME_WIDTH = 3840;
+const MAX_RESOLUTION_SCALE = 2;
+const MAX_WEBVIEW_ZOOM = 5;
+
+interface GameViewportMetrics {
+  containerWidth: number;
+  width: number;
+  height: number;
+  resolutionScale: number;
+}
+
+const getScreenCssWidth = () => {
+  const screenWidth =
+    window.screen?.availWidth || window.screen?.width || DEFAULT_GAME_WIDTH;
+  return Math.max(DEFAULT_GAME_WIDTH, Math.floor(screenWidth));
+};
+
+const getAutoResolutionScale = () => {
+  const dpr = window.devicePixelRatio || 1;
+  return Math.max(1, Math.min(MAX_RESOLUTION_SCALE, dpr));
+};
+
+const getGameViewportMetrics = (
+  container: HTMLDivElement,
+  mode: GameResolutionMode,
+): GameViewportMetrics => {
+  const containerWidth = Math.max(1, Math.floor(container.clientWidth));
+  const height = Math.max(1, Math.floor(container.clientHeight));
+
+  if (mode === "native") {
+    return {
+      containerWidth,
+      width: DEFAULT_GAME_WIDTH,
+      height,
+      resolutionScale: 1,
+    };
+  }
+
+  const screenLimitedWidth = Math.min(containerWidth, getScreenCssWidth());
+
+  return {
+    containerWidth,
+    width: Math.min(
+      MAX_GAME_WIDTH,
+      Math.max(DEFAULT_GAME_WIDTH, screenLimitedWidth),
+    ),
+    height,
+    resolutionScale: getAutoResolutionScale(),
+  };
+};
+
 export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
   const { backToLibrary, updateZoom, tabs } = useTabStore();
+  const gameResolutionMode = useSettingsStore(
+    (state) => state.gameResolutionMode,
+  );
   const tab = tabs.find((t) => t.id === id);
   const zoomFactor = tab?.zoomFactor || 1;
 
+  const gameAreaRef = useRef<HTMLDivElement | null>(null);
   const webviewRef = useRef<FlashWebviewElement | null>(null);
   const latestZoomRef = useRef(zoomFactor);
+  const latestResolutionScaleRef = useRef(1);
   const [pid, setPid] = useState<number | null>(null);
   const [isCrashed, setIsCrashed] = useState(false);
   const [crashReason, setCrashReason] = useState<string | null>(null);
+  const [gameViewport, setGameViewport] = useState<GameViewportMetrics>({
+    containerWidth: DEFAULT_GAME_WIDTH,
+    width: DEFAULT_GAME_WIDTH,
+    height: 720,
+    resolutionScale: 1,
+  });
+
+  const renderWidth = Math.max(
+    1,
+    Math.round(gameViewport.width * gameViewport.resolutionScale),
+  );
+  const actualResolutionScale = renderWidth / gameViewport.width;
+  const renderHeight = Math.max(
+    1,
+    Math.round(gameViewport.height * actualResolutionScale),
+  );
+  const isOverflowingWidth = gameViewport.width > gameViewport.containerWidth;
 
   const applyZoom = useCallback(() => {
     if (!webviewRef.current) {
@@ -41,7 +125,11 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
     }
 
     try {
-      webviewRef.current.setZoomFactor(latestZoomRef.current);
+      const effectiveZoom = Math.min(
+        MAX_WEBVIEW_ZOOM,
+        latestZoomRef.current * latestResolutionScaleRef.current,
+      );
+      webviewRef.current.setZoomFactor(effectiveZoom);
     } catch (e) {
       console.warn("Failed to set zoom factor:", e);
     }
@@ -51,6 +139,55 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
     latestZoomRef.current = zoomFactor;
     applyZoom();
   }, [zoomFactor, applyZoom]);
+
+  useEffect(() => {
+    latestResolutionScaleRef.current = actualResolutionScale;
+    applyZoom();
+  }, [actualResolutionScale, applyZoom]);
+
+  useLayoutEffect(() => {
+    const container = gameAreaRef.current;
+    if (!container) {
+      return;
+    }
+
+    let frameId = 0;
+    const mode = gameResolutionMode || "auto";
+
+    const updateViewport = () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        const next = getGameViewportMetrics(container, mode);
+        setGameViewport((current) =>
+          current.containerWidth === next.containerWidth &&
+          current.width === next.width &&
+          current.height === next.height &&
+          current.resolutionScale === next.resolutionScale
+            ? current
+            : next,
+        );
+      });
+    };
+
+    updateViewport();
+
+    const observer = new ResizeObserver(updateViewport);
+    observer.observe(container);
+    window.addEventListener("resize", updateViewport);
+    window.visualViewport?.addEventListener("resize", updateViewport);
+
+    return () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+      observer.disconnect();
+      window.removeEventListener("resize", updateViewport);
+      window.visualViewport?.removeEventListener("resize", updateViewport);
+    };
+  }, [gameResolutionMode]);
 
   useEffect(() => {
     if (!webviewRef.current) {
@@ -150,6 +287,15 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
               </div>
             </>
           )}
+          <div
+            className="h-6 items-center gap-gr-2 text-[10px] font-black text-zinc-500 hidden lg:flex uppercase tracking-tighter"
+            title={`游戏画面渲染: ${renderWidth} x ${renderHeight}`}
+          >
+            <Monitor size={12} />
+            {gameResolutionMode === "auto"
+              ? `${Math.round(actualResolutionScale * 100)}%`
+              : `${DEFAULT_GAME_WIDTH}px`}
+          </div>
         </div>
 
         <div className="flex items-center gap-gr-1 bg-white/5 p-gr-1 border border-white/5 flex-shrink-0">
@@ -176,7 +322,7 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       </div>
 
       {/* Webview Container */}
-      <div className="flex-grow flex justify-center items-start pt-10 overflow-auto bg-zinc-900 relative">
+      <div className="flex-grow pt-10 overflow-hidden bg-zinc-900 relative">
         {isCrashed && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-900/90 backdrop-blur-sm text-white p-gr-6 text-center">
             <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mb-gr-4 border border-red-500/30">
@@ -195,14 +341,29 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
             </Button>
           </div>
         )}
-        <div className="w-full h-full flex justify-center">
-          <webview
-            ref={webviewRef}
-            src={url}
-            {...WEBVIEW_FLASH_PROPS} // Enable Flash & Popups
-            className={`w-full h-full bg-black shadow-2xl transition-opacity duration-300 ${isCrashed ? 'opacity-0' : 'opacity-100'}`}
-            style={{ width: "1280px", height: "100%" }}
-          />
+        <div
+          ref={gameAreaRef}
+          className={`w-full h-full overflow-auto flex items-start ${
+            isOverflowingWidth ? "justify-start" : "justify-center"
+          }`}
+        >
+          <div
+            className="relative h-full flex-shrink-0 overflow-hidden bg-black shadow-2xl"
+            style={{ width: `${gameViewport.width}px` }}
+          >
+            <webview
+              ref={webviewRef}
+              src={url}
+              {...WEBVIEW_FLASH_PROPS} // Enable Flash & Popups
+              className={`absolute left-0 top-0 bg-black transition-opacity duration-300 ${isCrashed ? 'opacity-0' : 'opacity-100'}`}
+              style={{
+                width: `${renderWidth}px`,
+                height: `${renderHeight}px`,
+                transform: `scale(${1 / actualResolutionScale})`,
+                transformOrigin: "top left",
+              }}
+            />
+          </div>
         </div>
       </div>
     </div>

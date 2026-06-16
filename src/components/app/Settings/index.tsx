@@ -6,6 +6,7 @@ import { HotkeysTab } from "./HotkeysTab";
 import { KeymapTab } from "./KeymapTab";
 import { AutomationTab } from "./AutomationTab";
 import { ClickerTab } from "./ClickerTab";
+import { DisplayTab } from "./DisplayTab";
 
 interface SettingsProps {
   isOpen: boolean;
@@ -32,6 +33,7 @@ export const Settings: React.FC<SettingsProps> = ({
         <NavigationTab
           className="mb-6"
           items={[
+            { id: "display", label: "画面" },
             { id: "hotkeys", label: "快捷键设置" },
             { id: "keymap", label: "按键映射" },
             { id: "automation", label: "操作自动化" },
@@ -42,6 +44,9 @@ export const Settings: React.FC<SettingsProps> = ({
         />
 
         <div className="h-[60vh] min-h-[400px] relative overflow-y-auto">
+          <div className={activeTab === "display" ? "animate-fade-in block" : "hidden"}>
+            <DisplayTab />
+          </div>
           <div className={activeTab === "hotkeys" ? "animate-fade-in block" : "hidden"}>
             <HotkeysTab />
           </div>
