@@ -39,6 +39,17 @@ const MAX_GAME_WIDTH = 3840;
 const MAX_RESOLUTION_SCALE = 2;
 const MAX_WEBVIEW_ZOOM = 5;
 
+/**
+ * Clean resolution scale values that produce exact inverse fractions.
+ * Using these avoids sub-pixel blurring from irrational scale factors
+ * when the CSS `scale(1 / resolutionScale)` transform is applied.
+ *
+ * Each value N satisfies: `Math.round(width * N) / N ≈ width` with
+ * minimal floating-point drift, so the render→display roundtrip stays
+ * pixel-aligned.
+ */
+const CLEAN_RESOLUTION_SCALES = [1, 1.25, 1.5, 2] as const;
+
 interface GameViewportMetrics {
   containerWidth: number;
   width: number;
@@ -52,9 +63,27 @@ const getScreenCssWidth = () => {
   return Math.max(DEFAULT_GAME_WIDTH, Math.floor(screenWidth));
 };
 
-const getAutoResolutionScale = () => {
+/**
+ * Snap the device pixel ratio to the nearest clean scale factor.
+ * This ensures the webview is rendered at a resolution that can be
+ * inverse-scaled back to CSS pixels without sub-pixel misalignment.
+ */
+const getAutoResolutionScale = (): number => {
   const dpr = window.devicePixelRatio || 1;
-  return Math.max(1, Math.min(MAX_RESOLUTION_SCALE, dpr));
+  const clamped = Math.max(1, Math.min(MAX_RESOLUTION_SCALE, dpr));
+
+  let best = 1;
+  let bestDist = Math.abs(clamped - 1);
+
+  for (const s of CLEAN_RESOLUTION_SCALES) {
+    const dist = Math.abs(clamped - s);
+    if (dist < bestDist) {
+      best = s;
+      bestDist = dist;
+    }
+  }
+
+  return best;
 };
 
 const getGameViewportMetrics = (
@@ -108,16 +137,22 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
     resolutionScale: 1,
   });
 
+  // Since resolutionScale is snapped to a clean fraction (1, 1.25, 1.5, 2),
+  // the inverse scale `1 / resolutionScale` is also exact, preventing
+  // sub-pixel misalignment that causes blurry Flash rendering.
+  const resolutionScale = gameViewport.resolutionScale;
   const renderWidth = Math.max(
     1,
-    Math.round(gameViewport.width * gameViewport.resolutionScale),
+    Math.round(gameViewport.width * resolutionScale),
   );
-  const actualResolutionScale = renderWidth / gameViewport.width;
   const renderHeight = Math.max(
     1,
-    Math.round(gameViewport.height * actualResolutionScale),
+    Math.round(gameViewport.height * resolutionScale),
   );
+  const inverseScale = 1 / resolutionScale;
   const isOverflowingWidth = gameViewport.width > gameViewport.containerWidth;
+  // For display in toolbar
+  const actualResolutionScale = resolutionScale;
 
   const applyZoom = useCallback(() => {
     if (!webviewRef.current) {
@@ -359,8 +394,10 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
               style={{
                 width: `${renderWidth}px`,
                 height: `${renderHeight}px`,
-                transform: `scale(${1 / actualResolutionScale})`,
+                transform: `scale(${inverseScale})`,
                 transformOrigin: "top left",
+                willChange: "transform",
+                imageRendering: "auto",
               }}
             />
           </div>
