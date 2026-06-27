@@ -13,6 +13,10 @@ export class ConfigManager {
   private configDir: string;
   private configPath: string;
   private ahkProcess: any = null;
+  private ahkErrorHandler: ((err: any) => void) | null = null;
+  private saveKeymapHandler: ((_event: any, config: KeymapConfig) => void) | null = null;
+  private suspendKeymapHandler: (() => void) | null = null;
+  private resumeKeymapHandler: (() => void) | null = null;
 
   constructor() {
     this.configDir = path.join(os.homedir(), ".f-box");
@@ -103,10 +107,14 @@ enabled=1
       return;
     }
 
+    // Kill any previous AHK process before spawning a new one
+    this.killAHK();
+
     this.ahkProcess = spawn(ahkPath, [this.configPath, process.pid.toString()]);
-    this.ahkProcess.on("error", (err: any) => {
+    this.ahkErrorHandler = (err: any) => {
       console.error("AHK 启动失败:", err);
-    });
+    };
+    this.ahkProcess.on("error", this.ahkErrorHandler);
   }
 
   suspendKeymap(): void {
@@ -141,27 +149,51 @@ enabled=1
     });
 
     // Save keymap config
-    ipcMain.on(
-      "save-keymap-config",
-      (_event, config: KeymapConfig) => {
-        this.saveConfig(config);
-      },
-    );
+    this.saveKeymapHandler = (_event, config: KeymapConfig) => {
+      this.saveConfig(config);
+    };
+    ipcMain.on("save-keymap-config", this.saveKeymapHandler);
 
     // Suspend/Resume Keymap
-    ipcMain.on("suspend-keymap", () => {
+    this.suspendKeymapHandler = () => {
       this.suspendKeymap();
-    });
+    };
+    ipcMain.on("suspend-keymap", this.suspendKeymapHandler);
 
-    ipcMain.on("resume-keymap", () => {
+    this.resumeKeymapHandler = () => {
       this.resumeKeymap();
-    });
+    };
+    ipcMain.on("resume-keymap", this.resumeKeymapHandler);
   }
 
   killAHK(): void {
     if (this.ahkProcess) {
-      this.ahkProcess.kill();
+      if (this.ahkErrorHandler) {
+        this.ahkProcess.removeListener("error", this.ahkErrorHandler);
+        this.ahkErrorHandler = null;
+      }
+      try {
+        this.ahkProcess.kill();
+      } catch (e) {
+        // ignore
+      }
       this.ahkProcess = null;
+    }
+  }
+
+  cleanupIPCHandlers(): void {
+    ipcMain.removeHandler("get-keymap-config");
+    if (this.saveKeymapHandler) {
+      ipcMain.removeListener("save-keymap-config", this.saveKeymapHandler);
+      this.saveKeymapHandler = null;
+    }
+    if (this.suspendKeymapHandler) {
+      ipcMain.removeListener("suspend-keymap", this.suspendKeymapHandler);
+      this.suspendKeymapHandler = null;
+    }
+    if (this.resumeKeymapHandler) {
+      ipcMain.removeListener("resume-keymap", this.resumeKeymapHandler);
+      this.resumeKeymapHandler = null;
     }
   }
 }

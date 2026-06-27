@@ -18,6 +18,11 @@ export class ShortcutManager {
   private tray: Tray | null = null;
   private currentBossKey: string = "Escape";
 
+  private updateBossKeyHandler: ((_event: any, key: string) => void) | null =
+    null;
+  private suspendBossKeyHandler: (() => void) | null = null;
+  private resumeBossKeyHandler: (() => void) | null = null;
+
   constructor(options: ShortcutManagerOptions) {
     this.mainWindow = options.getWindow;
   }
@@ -103,21 +108,40 @@ export class ShortcutManager {
 
   setupIPCHandlers(): void {
     // Update Boss Key
-    ipcMain.on("update-boss-key", (_event: any, key: string) => {
+    this.updateBossKeyHandler = (_event: any, key: string) => {
       this.registerBossKey(key);
-    });
+    };
+    ipcMain.on("update-boss-key", this.updateBossKeyHandler);
 
     // Suspend/Resume Boss Key
-    ipcMain.on("suspend-boss-key", () => {
+    this.suspendBossKeyHandler = () => {
       this.suspendBossKey();
-    });
+    };
+    ipcMain.on("suspend-boss-key", this.suspendBossKeyHandler);
 
-    ipcMain.on("resume-boss-key", () => {
+    this.resumeBossKeyHandler = () => {
       this.resumeBossKey();
-    });
+    };
+    ipcMain.on("resume-boss-key", this.resumeBossKeyHandler);
+  }
+
+  cleanupIPCHandlers(): void {
+    if (this.updateBossKeyHandler) {
+      ipcMain.removeListener("update-boss-key", this.updateBossKeyHandler);
+      this.updateBossKeyHandler = null;
+    }
+    if (this.suspendBossKeyHandler) {
+      ipcMain.removeListener("suspend-boss-key", this.suspendBossKeyHandler);
+      this.suspendBossKeyHandler = null;
+    }
+    if (this.resumeBossKeyHandler) {
+      ipcMain.removeListener("resume-boss-key", this.resumeBossKeyHandler);
+      this.resumeBossKeyHandler = null;
+    }
   }
 
   dispose(): void {
+    this.cleanupIPCHandlers();
     globalShortcut.unregisterAll();
     if (this.tray) {
       this.tray.destroy();

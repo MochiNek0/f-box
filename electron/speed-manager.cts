@@ -1,7 +1,7 @@
 import { app, ipcMain } from "electron";
 import path from "path";
 import fs from "fs";
-import { spawn, execSync } from "child_process";
+import { spawn, execSync, ChildProcess } from "child_process";
 
 /**
  * SpeedManager: Professional Speed Gear Orchestrator
@@ -13,6 +13,8 @@ export class SpeedManager {
   private flashPid: number | null = null;
   private dataAddr: string | null = null;
   private is64Bit = true;
+  private injectorProcess: ChildProcess | null = null;
+  private injectorTimeout: NodeJS.Timeout | null = null;
 
   /**
    * Resolves the absolute path to the native injector executable.
@@ -99,10 +101,14 @@ export class SpeedManager {
 
     return new Promise((resolve) => {
       try {
+        // Kill previous injector process if still running
+        this.cleanupInjector();
+
         const proc = spawn(injectorExe, [pid.toString(), dllPath, "1.0"], {
           windowsHide: true,
           stdio: ["ignore", "pipe", "pipe"],
         });
+        this.injectorProcess = proc;
 
         let output = "";
         let resolved = false;
@@ -144,12 +150,12 @@ export class SpeedManager {
           }
         });
 
-        setTimeout(() => { 
-          if (!resolved) { 
-            resolved = true; 
+        this.injectorTimeout = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
             try { proc.kill(); } catch {}
-            resolve({ success: false, error: "注入响应超时" }); 
-          } 
+            resolve({ success: false, error: "注入响应超时" });
+          }
         }, 8000);
       } catch (e: any) {
         resolve({ success: false, error: e.message });
@@ -185,6 +191,7 @@ export class SpeedManager {
     if (this.injected && this.flashPid && this.dataAddr) {
       await this.setSpeed(1.0);
     }
+    this.cleanupInjector();
     this.injected = false;
     this.flashPid = null;
     this.dataAddr = null;
@@ -215,11 +222,43 @@ export class SpeedManager {
   }
 
   /**
+   * Clean up the injector process (timeout, listeners, process).
+   */
+  private cleanupInjector(): void {
+    if (this.injectorTimeout) {
+      clearTimeout(this.injectorTimeout);
+      this.injectorTimeout = null;
+    }
+    if (this.injectorProcess && !this.injectorProcess.killed) {
+      try {
+        this.injectorProcess.removeAllListeners();
+        this.injectorProcess.stdout?.removeAllListeners();
+        this.injectorProcess.stderr?.removeAllListeners();
+        this.injectorProcess.kill();
+      } catch (e) {
+        // ignore
+      }
+    }
+    this.injectorProcess = null;
+  }
+
+  /**
    * Immediate cleanup upon application core termination.
    */
   kill(): void {
+    this.cleanupInjector();
     this.injected = false;
     this.flashPid = null;
     this.dataAddr = null;
+  }
+
+  /**
+   * Remove IPC handlers registered by this manager.
+   */
+  cleanupIPCHandlers(): void {
+    ipcMain.removeHandler("speed-start");
+    ipcMain.removeHandler("speed-stop");
+    ipcMain.removeHandler("speed-set");
+    ipcMain.removeHandler("speed-status");
   }
 }

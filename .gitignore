@@ -26,3 +26,6 @@ release
 *.sw?
 
 bash.exe.stackdump
+
+# Stray Windows null-device file accidentally created by `> nul` / `2> nul` in Git Bash
+nul

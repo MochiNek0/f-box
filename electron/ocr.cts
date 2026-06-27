@@ -19,6 +19,9 @@ export class OcrManager {
   private queue: OcrRequest[] = [];
   private isProcessing = false;
   private buffer = ""; // Buffer for stdout
+  private procStdoutHandler: ((data: Buffer) => void) | null = null;
+  private procStderrHandler: ((data: Buffer) => void) | null = null;
+  private procExitHandler: ((code: number | null) => void) | null = null;
   private getPluginPath(): string {
     return path.join(os.homedir(), ".f-box", "plugins", "ocr");
   }
@@ -48,6 +51,9 @@ export class OcrManager {
 
     console.log("Starting PaddleOCR-json at:", exePath);
 
+    // Remove previous listeners if process exists
+    this.removeProcessHandlers();
+
     // PaddleOCR-json args
     // --use_debug=0 to disable logs
     this.process = spawn(exePath, ["--ensure_ascii=1", "--use_gpu=0"], {
@@ -56,18 +62,39 @@ export class OcrManager {
       stdio: ["pipe", "pipe", "pipe"],
     });
 
-    this.process.stdout?.on("data", (data) => this.handleData(data));
-    this.process.stderr?.on("data", (data) =>
-      console.error("OCR Stderr:", data.toString()),
-    );
+    this.procStdoutHandler = (data) => this.handleData(data);
+    this.procStderrHandler = (data) =>
+      console.error("OCR Stderr:", data.toString());
 
-    this.process.on("exit", (code) => {
+    this.procExitHandler = (code) => {
       console.log("PaddleOCR-json exited with code:", code);
       this.process = null;
       this.isProcessing = false;
+      this.removeProcessHandlers();
       // Retry pending queue? or reject?
       // For now, let's try to restart on next request
-    });
+    };
+
+    this.process.stdout?.on("data", this.procStdoutHandler);
+    this.process.stderr?.on("data", this.procStderrHandler);
+    this.process.on("exit", this.procExitHandler);
+  }
+
+  private removeProcessHandlers(): void {
+    if (this.process) {
+      if (this.procStdoutHandler) {
+        this.process.stdout?.removeListener("data", this.procStdoutHandler);
+      }
+      if (this.procStderrHandler) {
+        this.process.stderr?.removeListener("data", this.procStderrHandler);
+      }
+      if (this.procExitHandler) {
+        this.process.removeListener("exit", this.procExitHandler);
+      }
+    }
+    this.procStdoutHandler = null;
+    this.procStderrHandler = null;
+    this.procExitHandler = null;
   }
 
   private handleData(data: Buffer) {
@@ -146,10 +173,19 @@ export class OcrManager {
   }
 
   public kill() {
+    this.removeProcessHandlers();
     if (this.process) {
-      this.process.kill();
+      try {
+        this.process.kill();
+      } catch (e) {
+        // ignore
+      }
       this.process = null;
     }
+    this.queue.forEach((req) => req.reject(new Error("OCR service stopped")));
+    this.queue = [];
+    this.isProcessing = false;
+    this.buffer = "";
   }
 
   public async install(

@@ -340,4 +340,9 @@ export class UpdateManager {
       request.on("error", reject);
     });
   }
+
+  cleanupIPCHandlers(): void {
+    ipcMain.removeHandler("check-update");
+    ipcMain.removeHandler("download-update");
+  }
 }

@@ -99,6 +99,17 @@ let speedManager: SpeedManager | null = null;
 const getWindow = () => windowManager?.getWindow() || null;
 const inputHotkeyContents = new WeakSet<Electron.WebContents>();
 
+// Store event listener references for cleanup
+let webContentsCreatedListener: ((
+  _event: Electron.Event,
+  contents: Electron.WebContents,
+) => void) | null = null;
+let automationOcrResponseHandler: ((
+  _event: any,
+  data: { requestId: string; text: string; matched: boolean },
+) => void) | null = null;
+let openExternalHandler: ((_event: any, url: string) => void) | null = null;
+
 function normalizeAutomationHotkey(key: string): AutomationHotkeyKey | null {
   if (key === "F3" || key === "F4" || key === "F5") {
     return key;
@@ -162,13 +173,14 @@ function setupInputHotkeyHandler(): void {
     attachInputHotkeyHandler(mainWindow.webContents);
   }
 
-  app.on("web-contents-created", (_event, contents) => {
+  webContentsCreatedListener = (_event, contents) => {
     const type =
       typeof contents.getType === "function" ? contents.getType() : "";
     if (type === "webview" || type === "window") {
       attachInputHotkeyHandler(contents);
     }
-  });
+  };
+  app.on("web-contents-created", webContentsCreatedListener);
 }
 
 app.on("ready", () => {
@@ -208,9 +220,10 @@ app.on("ready", () => {
 // IPC Handlers - Core
 // ---------------------------------------------------------------
 function setupExternalLinkHandler(): void {
-  ipcMain.on("open-external", (_event: any, url: string) => {
+  openExternalHandler = (_event: any, url: string) => {
     shell.openExternal(url);
-  });
+  };
+  ipcMain.on("open-external", openExternalHandler);
 }
 
 function setupAppVersionHandler(): void {
@@ -286,33 +299,66 @@ function setupOCRHandlers(): void {
 // IPC Handlers - Automation OCR Response
 // ---------------------------------------------------------------
 function setupAutomationOCRHandler(): void {
-  ipcMain.on(
-    "automation-ocr-response",
-    (
-      _event,
-      {
-        requestId,
-        text,
-        matched,
-      }: { requestId: string; text: string; matched: boolean },
-    ) => {
-      console.log(
-        `OCR Result [id=${requestId}] from Renderer: "${text}", matched: ${matched}`,
-      );
-      automationManager?.handleOCRResponse({ requestId, text, matched });
-    },
-  );
+  automationOcrResponseHandler = (
+    _event,
+    {
+      requestId,
+      text,
+      matched,
+    }: { requestId: string; text: string; matched: boolean },
+  ) => {
+    console.log(
+      `OCR Result [id=${requestId}] from Renderer: "${text}", matched: ${matched}`,
+    );
+    automationManager?.handleOCRResponse({ requestId, text, matched });
+  };
+  ipcMain.on("automation-ocr-response", automationOcrResponseHandler);
 }
 
 // ---------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------
 app.on("before-quit", () => {
+  // Kill child processes first (before windows close)
   configManager?.killAHK();
   automationManager?.kill();
   ocrManager?.kill();
   speedManager?.kill();
   shortcutManager?.dispose();
+});
+
+app.on("will-quit", () => {
+  // Remove app-level event listeners
+  if (webContentsCreatedListener) {
+    app.removeListener("web-contents-created", webContentsCreatedListener);
+    webContentsCreatedListener = null;
+  }
+
+  // Destroy window and remove IPC handlers
+  windowManager?.cleanup();
+  windowManager?.destroy();
+
+  configManager?.cleanupIPCHandlers();
+  shortcutManager?.cleanupIPCHandlers();
+  automationManager?.cleanupIPCHandlers();
+  updateManager?.cleanupIPCHandlers();
+  speedManager?.cleanupIPCHandlers();
+
+  // Remove core IPC handlers
+  ipcMain.removeHandler("get-app-version");
+  ipcMain.removeHandler("get-flash-pid");
+  ipcMain.removeHandler("perform-ocr");
+  ipcMain.removeHandler("ocr-get-status");
+  ipcMain.removeHandler("ocr-install");
+  ipcMain.removeHandler("ocr-uninstall");
+  if (automationOcrResponseHandler) {
+    ipcMain.removeListener("automation-ocr-response", automationOcrResponseHandler);
+    automationOcrResponseHandler = null;
+  }
+  if (openExternalHandler) {
+    ipcMain.removeListener("open-external", openExternalHandler);
+    openExternalHandler = null;
+  }
 });
 
 app.on("window-all-closed", () => {

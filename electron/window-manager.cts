@@ -5,6 +5,13 @@ import fs from "fs";
 export class WindowManager {
   private mainWindow: BrowserWindow | null = null;
   private flashPath: string | null = null;
+  private windowControlsHandler: ((
+    _event: any,
+    action: "minimize" | "maximize" | "close",
+  ) => void) | null = null;
+  private setOpacityHandler: ((_event: any, opacity: number) => void) | null =
+    null;
+  private checkFlashHandler: (() => boolean | Promise<boolean>) | null = null;
 
   constructor(flashPath: string | null) {
     this.flashPath = flashPath;
@@ -57,42 +64,42 @@ export class WindowManager {
   }
 
   private setupWindowControls(): void {
-    ipcMain.on(
-      "window-controls",
-      (_event: any, action: "minimize" | "maximize" | "close") => {
-        if (!this.mainWindow) return;
-        switch (action) {
-          case "minimize":
-            this.mainWindow.minimize();
-            break;
-          case "maximize":
-            if (this.mainWindow.isMaximized()) {
-              this.mainWindow.unmaximize();
-            } else {
-              this.mainWindow.maximize();
-            }
-            break;
-          case "close":
-            this.mainWindow.close();
-            break;
-        }
-      },
-    );
+    this.windowControlsHandler = (_event: any, action: "minimize" | "maximize" | "close") => {
+      if (!this.mainWindow) return;
+      switch (action) {
+        case "minimize":
+          this.mainWindow.minimize();
+          break;
+        case "maximize":
+          if (this.mainWindow.isMaximized()) {
+            this.mainWindow.unmaximize();
+          } else {
+            this.mainWindow.maximize();
+          }
+          break;
+        case "close":
+          this.mainWindow.close();
+          break;
+      }
+    };
+    ipcMain.on("window-controls", this.windowControlsHandler);
   }
 
   private setupOpacityControl(): void {
-    ipcMain.on("set-opacity", (_event: any, opacity: number) => {
+    this.setOpacityHandler = (_event: any, opacity: number) => {
       if (this.mainWindow) {
         this.mainWindow.setOpacity(opacity);
       }
-    });
+    };
+    ipcMain.on("set-opacity", this.setOpacityHandler);
   }
 
   private setupFlashDetection(): void {
-    ipcMain.handle("check-flash", () => {
+    this.checkFlashHandler = () => {
       const result = this.flashPath ? fs.existsSync(this.flashPath) : false;
       return result;
-    });
+    };
+    ipcMain.handle("check-flash", this.checkFlashHandler);
   }
 
   getFlashPath(): string | null {
@@ -124,5 +131,27 @@ export class WindowManager {
         }
       });
     });
+  }
+
+  destroy(): void {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.destroy();
+    }
+    this.mainWindow = null;
+  }
+
+  cleanup(): void {
+    if (this.windowControlsHandler) {
+      ipcMain.removeListener("window-controls", this.windowControlsHandler);
+      this.windowControlsHandler = null;
+    }
+    if (this.setOpacityHandler) {
+      ipcMain.removeListener("set-opacity", this.setOpacityHandler);
+      this.setOpacityHandler = null;
+    }
+    if (this.checkFlashHandler) {
+      ipcMain.removeHandler("check-flash");
+      this.checkFlashHandler = null;
+    }
   }
 }

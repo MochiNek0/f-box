@@ -66,6 +66,9 @@ export class AutomationManager {
   private ocrRequestMap = new Map<string, { eventIndex: number; expectedText: string }>();
   private currentRunCount = 0;
   private ocrResultManager: OcrResultManager;
+  private procStdoutHandler: ((data: Buffer) => void) | null = null;
+  private procStderrHandler: ((data: Buffer) => void) | null = null;
+  private procExitHandler: (() => void) | null = null;
 
   constructor(
     getWindow: () => BrowserWindow | null,
@@ -192,6 +195,8 @@ export class AutomationManager {
   }
 
   private killAutomationProcess(): void {
+    this.removeProcessHandlers();
+
     if (this.automationProcess && !this.automationProcess.killed) {
       try {
         this.automationProcess.kill();
@@ -255,10 +260,13 @@ export class AutomationManager {
   private setupProcessHandlers(): void {
     if (!this.automationProcess) return;
 
+    // Remove previous handlers if any
+    this.removeProcessHandlers();
+
     const activeProcess = this.automationProcess;
     this.stdoutBuffer = "";
 
-    activeProcess.stdout?.on("data", (data: Buffer) => {
+    this.procStdoutHandler = (data: Buffer) => {
       if (this.automationProcess !== activeProcess) return;
       this.stdoutBuffer += data.toString();
 
@@ -296,14 +304,14 @@ export class AutomationManager {
           this.mainWindow()?.webContents.send("automation-status", trimmed);
         }
       }
-    });
+    };
 
-    activeProcess.stderr?.on("data", (data: Buffer) => {
+    this.procStderrHandler = (data: Buffer) => {
       if (this.automationProcess !== activeProcess) return;
       console.error("Automation stderr:", data.toString());
-    });
+    };
 
-    activeProcess.on("exit", () => {
+    this.procExitHandler = () => {
       if (this.automationProcess !== activeProcess) return;
       this.automationProcess = null;
       this.currentPlayingScriptPath = null;
@@ -311,7 +319,32 @@ export class AutomationManager {
       this.activeHotkeySlot = null;
       this.stdoutBuffer = "";
       this.mainWindow()?.webContents.send("automation-status", "STATUS|PROCESS_EXIT");
-    });
+      // Clear stored handlers since process exited
+      this.procStdoutHandler = null;
+      this.procStderrHandler = null;
+      this.procExitHandler = null;
+    };
+
+    activeProcess.stdout?.on("data", this.procStdoutHandler);
+    activeProcess.stderr?.on("data", this.procStderrHandler);
+    activeProcess.on("exit", this.procExitHandler);
+  }
+
+  private removeProcessHandlers(): void {
+    if (this.automationProcess) {
+      if (this.procStdoutHandler) {
+        this.automationProcess.stdout?.removeListener("data", this.procStdoutHandler);
+      }
+      if (this.procStderrHandler) {
+        this.automationProcess.stderr?.removeListener("data", this.procStderrHandler);
+      }
+      if (this.procExitHandler) {
+        this.automationProcess.removeListener("exit", this.procExitHandler);
+      }
+    }
+    this.procStdoutHandler = null;
+    this.procStderrHandler = null;
+    this.procExitHandler = null;
   }
 
   async startRecord(name: string): Promise<{ success: boolean; error?: string }> {
@@ -759,5 +792,31 @@ export class AutomationManager {
 
   kill(): void {
     this.killAutomationProcess();
+    this.ocrRequestMap.clear();
+    this.currentRunCount = 0;
+  }
+
+  cleanupIPCHandlers(): void {
+    const channels = [
+      "automation-start-record",
+      "automation-save-script",
+      "automation-stop-record",
+      "automation-start-play",
+      "automation-stop-play",
+      "automation-list-scripts",
+      "automation-get-hotkey-slots",
+      "automation-save-hotkey-slots",
+      "automation-delete-script",
+      "automation-save-config",
+      "automation-get-config",
+      "automation-breakpoint-resume",
+      "automation-get-script-events",
+      "automation-get-screenshot",
+      "automation-get-ocr-results",
+      "automation-clear-ocr-results",
+    ];
+    for (const channel of channels) {
+      ipcMain.removeHandler(channel);
+    }
   }
 }
