@@ -102,10 +102,6 @@ export class ShortcutManager {
     console.log("Boss Key resumed");
   }
 
-  getCurrentBossKey(): string {
-    return this.currentBossKey;
-  }
-
   setupIPCHandlers(): void {
     // Update Boss Key
     this.updateBossKeyHandler = (_event: any, key: string) => {

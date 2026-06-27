@@ -334,11 +334,3 @@ export async function getFastestProxy(githubUrl: string): Promise<string> {
   cacheProxy(githubUrl, cleanUrl);
   return cleanUrl;
 }
-
-/**
- * 清除代理缓存
- */
-export function clearProxyCache(): void {
-  proxyCache.clear();
-  console.log("[Proxy] Cache cleared");
-}

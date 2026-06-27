@@ -173,10 +173,15 @@ export class SpeedManager {
 
     const injectorExe = this.getInjectorPath(this.is64Bit);
     try {
-      spawn(injectorExe, ["--speed", this.flashPid.toString(), this.dataAddr, multiplier.toString()], {
+      const child = spawn(injectorExe, ["--speed", this.flashPid.toString(), this.dataAddr, multiplier.toString()], {
         windowsHide: true,
         stdio: "ignore",
-      }).unref();
+      });
+      // Handle async spawn errors so an unhandled 'error' event can't crash the main process
+      child.on("error", (err) => {
+        console.error("[Speed] setSpeed injector spawn error:", err);
+      });
+      child.unref();
       this.currentSpeed = multiplier;
       return { success: true };
     } catch {

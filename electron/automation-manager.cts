@@ -2,20 +2,12 @@ import {
   app,
   BrowserWindow,
   ipcMain,
-  shell,
 } from "electron";
 import path from "path";
 import fs from "fs";
 import { spawn, ChildProcess } from "child_process";
 import { OcrManager } from "./ocr.cjs";
 import { OcrResultManager, OcrResultEntry } from "./ocr-result-manager.cjs";
-
-export interface AutomationOcrRequest {
-  requestId: string;
-  screenshotData: string;
-  region: { x: number; y: number; w: number; h: number };
-  expectedText: string;
-}
 
 export interface BreakpointData {
   x: number;
@@ -763,20 +755,24 @@ export class AutomationManager {
     }
 
     if (this.currentPlayingScriptPath) {
-      if (data.matched) {
-        console.log(
-          `OCR matched! Stopping automation [id=${data.requestId}].`,
-        );
-        fs.writeFileSync(
-          `${this.currentPlayingScriptPath}.stop_script_${data.requestId}`,
-          "",
-        );
-      } else {
-        console.log(`OCR did NOT match. Continuing [id=${data.requestId}].`);
-        fs.writeFileSync(
-          `${this.currentPlayingScriptPath}.continue_${data.requestId}`,
-          "",
-        );
+      try {
+        if (data.matched) {
+          console.log(
+            `OCR matched! Stopping automation [id=${data.requestId}].`,
+          );
+          fs.writeFileSync(
+            `${this.currentPlayingScriptPath}.stop_script_${data.requestId}`,
+            "",
+          );
+        } else {
+          console.log(`OCR did NOT match. Continuing [id=${data.requestId}].`);
+          fs.writeFileSync(
+            `${this.currentPlayingScriptPath}.continue_${data.requestId}`,
+            "",
+          );
+        }
+      } catch (e) {
+        console.error("Failed to write OCR signal file:", e);
       }
     }
   }

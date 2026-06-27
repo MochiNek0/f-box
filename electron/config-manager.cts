@@ -94,8 +94,14 @@ enabled=1
       this.ahkProcess = null;
     }
 
-    const content = fs.readFileSync(this.configPath, "utf-8");
-    const { enabled } = this.parseIni(content);
+    let enabled: boolean;
+    try {
+      const content = fs.readFileSync(this.configPath, "utf-8");
+      ({ enabled } = this.parseIni(content));
+    } catch (e) {
+      console.error("无法读取键位映射配置，跳过启动 AHK:", e);
+      return;
+    }
     if (!enabled) return;
 
     const ahkPath = app.isPackaged

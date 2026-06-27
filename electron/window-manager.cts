@@ -102,10 +102,6 @@ export class WindowManager {
     ipcMain.handle("check-flash", this.checkFlashHandler);
   }
 
-  getFlashPath(): string | null {
-    return this.flashPath;
-  }
-
   private setupWindowEvents(): void {
     if (!this.mainWindow) return;
 

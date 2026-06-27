@@ -42,8 +42,6 @@ const App: React.FC = () => {
   }, [bossKey]);
 
   useEffect(() => {
-    let detachStatus: (() => void) | undefined;
-
     const init = async () => {
       if (window.electron && window.electron.checkFlash) {
         try {
@@ -60,6 +58,7 @@ const App: React.FC = () => {
 
       // Breakpoint Trigger Listener
       if (
+        window.electron &&
         window.electron.automation &&
         window.electron.automation.onBreakpointTriggered
       ) {
@@ -71,6 +70,7 @@ const App: React.FC = () => {
 
       // OCR Request Listener for Playback
       if (
+        window.electron &&
         window.electron.automation &&
         window.electron.automation.onOCRRequest
       ) {
@@ -141,16 +141,15 @@ const App: React.FC = () => {
     };
     init();
     return () => {
-      if (typeof detachStatus === "function") {
-        detachStatus();
-      }
       if (
+        window.electron &&
         window.electron.automation &&
         window.electron.automation.offBreakpointTriggered
       ) {
         window.electron.automation.offBreakpointTriggered();
       }
       if (
+        window.electron &&
         window.electron.automation &&
         window.electron.automation.offOCRRequest
       ) {

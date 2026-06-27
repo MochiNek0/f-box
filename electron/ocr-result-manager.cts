@@ -74,14 +74,4 @@ export class OcrResultManager {
       return false;
     }
   }
-
-  clearAllResults(): void {
-    try {
-      if (fs.existsSync(this.baseDir)) {
-        fs.rmSync(this.baseDir, { recursive: true, force: true });
-      }
-    } catch (e) {
-      console.error("OcrResultManager.clearAllResults error:", e);
-    }
-  }
 }
