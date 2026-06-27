@@ -305,12 +305,13 @@ function setupAutomationOCRHandler(): void {
       requestId,
       text,
       matched,
-    }: { requestId: string; text: string; matched: boolean },
+      error,
+    }: { requestId: string; text: string; matched: boolean; error?: string },
   ) => {
     console.log(
-      `OCR Result [id=${requestId}] from Renderer: "${text}", matched: ${matched}`,
+      `OCR Result [id=${requestId}] from Renderer: "${text}", matched: ${matched}${error ? `, error: ${error}` : ""}`,
     );
-    automationManager?.handleOCRResponse({ requestId, text, matched });
+    automationManager?.handleOCRResponse({ requestId, text, matched, error });
   };
   ipcMain.on("automation-ocr-response", automationOcrResponseHandler);
 }

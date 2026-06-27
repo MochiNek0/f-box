@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 import { spawn } from "child_process";
+import { killProcessTree } from "./process-utils.cjs";
 
 export interface KeymapConfig {
   enabled: boolean;
@@ -174,6 +175,7 @@ enabled=1
 
   killAHK(): void {
     if (this.ahkProcess) {
+      const pid = this.ahkProcess.pid;
       if (this.ahkErrorHandler) {
         this.ahkProcess.removeListener("error", this.ahkErrorHandler);
         this.ahkErrorHandler = null;
@@ -184,6 +186,7 @@ enabled=1
         // ignore
       }
       this.ahkProcess = null;
+      killProcessTree(pid);
     }
   }
 

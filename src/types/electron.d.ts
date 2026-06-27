@@ -107,6 +107,7 @@ export interface AutomationAPI {
     requestId: string;
     text: string;
     matched: boolean;
+    error?: string;
   }) => void;
   offOCRRequest: () => void;
   getOcrResults: (name: string) => Promise<OcrResultEntry[]>;

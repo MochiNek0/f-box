@@ -2,6 +2,7 @@ import { app, ipcMain } from "electron";
 import path from "path";
 import fs from "fs";
 import { spawn, execSync, ChildProcess } from "child_process";
+import { killProcessTree } from "./process-utils.cjs";
 
 /**
  * SpeedManager: Professional Speed Gear Orchestrator
@@ -15,6 +16,9 @@ export class SpeedManager {
   private is64Bit = true;
   private injectorProcess: ChildProcess | null = null;
   private injectorTimeout: NodeJS.Timeout | null = null;
+  // setSpeed coalescing — see setSpeed() for rationale
+  private setSpeedDrain: Promise<void> | null = null;
+  private pendingSetSpeed: number | null = null;
 
   /**
    * Resolves the absolute path to the native injector executable.
@@ -150,6 +154,20 @@ export class SpeedManager {
           }
         });
 
+        // Async spawn errors (ENOENT, EACCES, AV block, etc.) surface here
+        // rather than as a thrown exception. Without this listener, an
+        // unhandled 'error' event would crash the main process.
+        proc.on("error", (err) => {
+          if (!resolved) {
+            resolved = true;
+            if (this.injectorTimeout) {
+              clearTimeout(this.injectorTimeout);
+              this.injectorTimeout = null;
+            }
+            resolve({ success: false, error: err.message || "注入器启动失败" });
+          }
+        });
+
         this.injectorTimeout = setTimeout(() => {
           if (!resolved) {
             resolved = true;
@@ -165,36 +183,178 @@ export class SpeedManager {
 
   /**
    * Updates the speed multiplier in the target process memory.
+   *
+   * Coalesces concurrent calls: each spawn opens the target process, writes
+   * to shared memory, and exits. Firing 20+ injectors in a 200ms slider drag
+   * triggers AV heuristics, races the writes against each other (later
+   * spawns can finish first → speed snaps back), and can exhaust process
+   * handles. We keep at most one injector in flight at a time; any calls
+   * during the spawn only update `pendingSetSpeed` so we apply the LATEST
+   * value when the in-flight injector finishes. Slider drag → at most 2
+   * injectors (first value + final value), no AV noise, no race.
    */
   async setSpeed(multiplier: number): Promise<{ success: boolean; error?: string }> {
     if (!this.injected || !this.flashPid || !this.dataAddr) {
       return { success: false, error: "尚未开启变速" };
     }
 
-    const injectorExe = this.getInjectorPath(this.is64Bit);
-    try {
-      const child = spawn(injectorExe, ["--speed", this.flashPid.toString(), this.dataAddr, multiplier.toString()], {
-        windowsHide: true,
-        stdio: "ignore",
-      });
-      // Handle async spawn errors so an unhandled 'error' event can't crash the main process
-      child.on("error", (err) => {
-        console.error("[Speed] setSpeed injector spawn error:", err);
-      });
-      child.unref();
-      this.currentSpeed = multiplier;
+    if (this.setSpeedDrain) {
+      // Queue the latest desired value; the in-flight drain loop will
+      // apply it before exiting. Return immediately so slider drag stays
+      // responsive — the caller doesn't block on the actual write.
+      this.pendingSetSpeed = multiplier;
       return { success: true };
-    } catch {
-      return { success: false, error: "写入失败" };
+    }
+
+    const drain = this.runSetSpeedDrain(multiplier);
+    this.setSpeedDrain = drain;
+    try {
+      await drain;
+      return { success: true };
+    } catch (e: any) {
+      return { success: false, error: e?.message || "写入失败" };
+    } finally {
+      this.setSpeedDrain = null;
+      // On success the drain loop already consumed pendingSetSpeed. On a spawn
+      // failure it bails out early, so a value queued by a coalesced call
+      // during the drag would otherwise be silently dropped here — the game
+      // would stay at the last-written speed while the UI shows the requested
+      // one. Re-arm a fresh drain (fire-and-forget) for that leftover value so
+      // the user's latest slider position still gets applied. Bounded: the new
+      // drain has no pending value of its own, so a repeated failure stops
+      // after one retry rather than looping.
+      const leftover = this.pendingSetSpeed;
+      this.pendingSetSpeed = null;
+      if (leftover !== null && leftover !== this.currentSpeed) {
+        void this.setSpeed(leftover);
+      }
     }
   }
 
   /**
+   * Drives the inner write loop: spawn → wait → check pending → repeat.
+   * Stops on first spawn failure (next user setSpeed will re-arm).
+   */
+  private async runSetSpeedDrain(initial: number): Promise<void> {
+    let target = initial;
+    while (true) {
+      await this.spawnSetSpeedOnce(target);
+      this.currentSpeed = target;
+      if (
+        this.pendingSetSpeed === null ||
+        this.pendingSetSpeed === this.currentSpeed
+      ) {
+        break;
+      }
+      target = this.pendingSetSpeed;
+      this.pendingSetSpeed = null;
+    }
+  }
+
+  /**
+   * Spawn a single injector --speed run and resolve when it exits cleanly.
+   * Wraps async spawn errors and adds a 3s safety timeout so a stuck
+   * injector can't block the coalescing queue forever.
+   */
+  private spawnSetSpeedOnce(multiplier: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // If stop() ran while we were in the drain loop, injected/flashPid/
+      // dataAddr have been cleared. Reject so the drain loop exits cleanly
+      // rather than crashing on a null-deref of `this.flashPid!`.
+      if (!this.injected || !this.flashPid || !this.dataAddr) {
+        reject(new Error("已停止"));
+        return;
+      }
+
+      const injectorExe = this.getInjectorPath(this.is64Bit);
+      let settled = false;
+      let timer: NodeJS.Timeout | null = null;
+
+      const finalize = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        fn();
+      };
+
+      let child: ChildProcess;
+      try {
+        child = spawn(
+          injectorExe,
+          [
+            "--speed",
+            this.flashPid!.toString(),
+            this.dataAddr!,
+            multiplier.toString(),
+          ],
+          { windowsHide: true, stdio: "ignore" },
+        );
+      } catch (e: any) {
+        reject(e);
+        return;
+      }
+
+      child.on("error", (err) => {
+        console.error("[Speed] setSpeed injector spawn error:", err);
+        finalize(() => reject(err));
+      });
+
+      child.on("exit", (code) => {
+        finalize(() => {
+          if (code === 0) {
+            resolve();
+          } else {
+            reject(new Error(`injector exited with code ${code}`));
+          }
+        });
+      });
+
+      timer = setTimeout(() => {
+        finalize(() => {
+          try {
+            child.kill();
+          } catch {
+            // ignore
+          }
+          reject(new Error("setSpeed 超时"));
+        });
+      }, 3000);
+    });
+  }
+
+  /**
    * Stops the speedhack and resets the multiplier to 1.0x.
+   *
+   * Coordinates with the setSpeed coalescing queue: if a drain is in
+   * flight, we queue 1.0 as its next value AND wait for it to settle
+   * before tearing down state. Otherwise the in-flight injector could
+   * leave the DLL holding the user's last slider value (e.g. 5x) after
+   * "stop" appears to have run — the UI says inactive, the game still
+   * runs fast until reload.
+   *
+   * NOTE: this deliberately does NOT just `await this.setSpeed(1.0)`. When a
+   * drain is active, setSpeed queues the value and returns IMMEDIATELY (by
+   * design, so the slider stays responsive — the renderer awaits setSpeed
+   * before updating the UI). Awaiting it here would therefore return before
+   * 1.0 is actually written. We must await the drain promise itself. Do not
+   * "simplify" this into a single setSpeed call.
    */
   async stop(): Promise<{ success: boolean }> {
     if (this.injected && this.flashPid && this.dataAddr) {
-      await this.setSpeed(1.0);
+      if (this.setSpeedDrain) {
+        // Drain is active — queue 1.0 as the final value and wait.
+        this.pendingSetSpeed = 1.0;
+        try {
+          await this.setSpeedDrain;
+        } catch {
+          // Already logged inside the drain; proceed with teardown.
+        }
+      } else {
+        await this.setSpeed(1.0);
+      }
     }
     this.cleanupInjector();
     this.injected = false;
@@ -234,7 +394,9 @@ export class SpeedManager {
       clearTimeout(this.injectorTimeout);
       this.injectorTimeout = null;
     }
+    let pid: number | undefined;
     if (this.injectorProcess && !this.injectorProcess.killed) {
+      pid = this.injectorProcess.pid;
       try {
         this.injectorProcess.removeAllListeners();
         this.injectorProcess.stdout?.removeAllListeners();
@@ -245,6 +407,7 @@ export class SpeedManager {
       }
     }
     this.injectorProcess = null;
+    killProcessTree(pid);
   }
 
   /**

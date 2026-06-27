@@ -139,6 +139,30 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
               setIsPlaying(false);
               setPlayingScript(null);
               break;
+            case "MAX_LOOPS_REACHED": {
+              // STATUS|MAX_LOOPS_REACHED|Target:<n>|Current:<n>
+              const target = parts[2]?.split(":")[1] ?? "";
+              setStatusMessage(`🎉 已达到设定循环次数，共执行 ${target} 轮`);
+              setIsPlaying(false);
+              setPlayingScript(null);
+              break;
+            }
+            case "OCR_FAILED": {
+              // STATUS|OCR_FAILED|<requestId>|<encoded error>
+              // OCR subsystem fault (plugin missing, process crash, timeout) —
+              // distinct from "condition not met". Surface the reason so the
+              // user can fix OCR instead of silently re-running into it.
+              let reason = "";
+              try {
+                reason = decodeURIComponent(parts[3] ?? "");
+              } catch {
+                reason = parts[3] ?? "";
+              }
+              setStatusMessage(`⚠️ OCR 识别故障，已停止播放${reason ? `：${reason}` : ""}`);
+              setIsPlaying(false);
+              setPlayingScript(null);
+              break;
+            }
             case "PROCESS_EXIT":
               if (isRecording) {
                 setIsRecording(false);

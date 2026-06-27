@@ -3,6 +3,18 @@
  * Performs: Crop, Scale, Grayscale, Invert, Binarize
  */
 
+/**
+ * An OCR crop region.
+ *
+ * COORDINATE CONVENTION (shared, load-bearing): x/y/w/h are in **CSS pixels**
+ * of the captured window — i.e. the screenshot's natural-pixel size divided by
+ * `window.devicePixelRatio`. This convention is produced by
+ * `OCRSelectionOverlay` (which maps mouse coords to natural pixels via
+ * `toImageCoords`, then divides by dpr before persisting) and consumed here in
+ * `preprocessImage` (which multiplies by dpr to crop the natural-pixel image).
+ * Both sides MUST agree. It matches the legacy on-disk format, so breakpoint
+ * regions saved by older versions keep working on HiDPI displays.
+ */
 export interface OCRRegion {
   x: number;
   y: number;
@@ -30,9 +42,11 @@ export async function preprocessImage(
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.onload = () => {
+      // `region` is in CSS pixels (see OCRRegion). The screenshot `img` is at
+      // natural-pixel resolution, so scale the region up by devicePixelRatio to
+      // index into it. This mirrors the overlay's natural→CSS conversion and
+      // keeps legacy (pre-natural-pixel) breakpoint regions correct on HiDPI.
       const dpr = window.devicePixelRatio || 1;
-
-      // Calculate scaled dimensions
       const sw = region.w * dpr;
       const sh = region.h * dpr;
       const dw = sw * options.scale;

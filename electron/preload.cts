@@ -120,6 +120,7 @@ contextBridge.exposeInMainWorld("electron", {
       requestId: string;
       text: string;
       matched: boolean;
+      error?: string;
     }) => {
       ipcRenderer.send("automation-ocr-response", data);
     },

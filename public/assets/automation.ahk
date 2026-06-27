@@ -372,15 +372,27 @@ ExecuteEvent(evt) {
     else if (evt.type = "keydown") {
         key := evt.key
         try {
-            Send("{" key " down}")
+            SendKeyAction(key, "down")
         }
     }
     else if (evt.type = "keyup") {
         key := evt.key
         try {
-            Send("{" key " up}")
+            SendKeyAction(key, "up")
         }
     }
+}
+
+; AHK's Send treats ^ ! + # { } as special. When a key name is one of these
+; single characters the {key down}/{key up} form is invalid, so emit it as a
+; literal {char} once (on the down event only).
+SendKeyAction(key, action) {
+    if (StrLen(key) = 1 && InStr("^!+#{}", key)) {
+        if (action = "down")
+            Send("{" key "}")
+        return
+    }
+    Send("{" key " " action "}")
 }
 
 ; =================================================================

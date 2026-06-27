@@ -2,11 +2,13 @@ import {
   app,
   BrowserWindow,
   ipcMain,
+  globalShortcut,
 } from "electron";
 import path from "path";
 import fs from "fs";
 import { spawn, ChildProcess } from "child_process";
 import { OcrManager } from "./ocr.cjs";
+import { killProcessTree } from "./process-utils.cjs";
 import { OcrResultManager, OcrResultEntry } from "./ocr-result-manager.cjs";
 
 export interface BreakpointData {
@@ -61,6 +63,8 @@ export class AutomationManager {
   private procStdoutHandler: ((data: Buffer) => void) | null = null;
   private procStderrHandler: ((data: Buffer) => void) | null = null;
   private procExitHandler: (() => void) | null = null;
+  private procErrorHandler: ((err: Error) => void) | null = null;
+  private stopHotkeyRegistered = false;
 
   constructor(
     getWindow: () => BrowserWindow | null,
@@ -190,13 +194,65 @@ export class AutomationManager {
     this.removeProcessHandlers();
 
     if (this.automationProcess && !this.automationProcess.killed) {
+      const pid = this.automationProcess.pid;
       try {
         this.automationProcess.kill();
       } catch (e) {
         // ignore
       }
       this.automationProcess = null;
+      killProcessTree(pid);
     }
+  }
+
+  /**
+   * Register F10 as a global stop hotkey during playback.
+   *
+   * Why this exists: the in-script AHK F10 hook only fires while the game
+   * window is unfocused on Electron (or when AHK is responsive). If the game
+   * grabs focus AND the AHK process hangs on a long Sleep/Send loop, the
+   * advertised "press F10 to stop" stops working — users had to kill the
+   * exe from Task Manager. globalShortcut uses RegisterHotKey under the
+   * hood, runs at the OS level, and fires regardless of focus or whether
+   * AHK is responding.
+   *
+   * Co-existence with the AHK F10: globalShortcut and AHK's low-level
+   * keyboard hook are independent paths; both may fire. stopPlay is
+   * idempotent (killAutomationProcess guards on `.killed`), so double-fire
+   * is harmless. We only register for playback — recording's F10 has a
+   * different meaning in AHK (finalize/save) and we don't want to bypass it.
+   */
+  private registerStopHotkey(): void {
+    if (this.stopHotkeyRegistered) return;
+    try {
+      const ok = globalShortcut.register("F10", () => {
+        console.log("Global F10 pressed — stopping automation playback");
+        this.stopPlay().catch((e) =>
+          console.error("stopPlay (F10 global) failed:", e),
+        );
+      });
+      if (ok) {
+        this.stopHotkeyRegistered = true;
+      } else {
+        // Another app (or our own boss-key) owns F10 — log and continue.
+        // Users can still stop via the UI button or per-slot hotkey.
+        console.warn(
+          "Failed to register global F10 stop hotkey (already taken)",
+        );
+      }
+    } catch (e) {
+      console.error("Error registering global F10 stop hotkey:", e);
+    }
+  }
+
+  private unregisterStopHotkey(): void {
+    if (!this.stopHotkeyRegistered) return;
+    try {
+      globalShortcut.unregister("F10");
+    } catch (e) {
+      console.error("Error unregistering global F10:", e);
+    }
+    this.stopHotkeyRegistered = false;
   }
 
   private async handlePlaybackOCRRequest(line: string): Promise<void> {
@@ -305,21 +361,42 @@ export class AutomationManager {
 
     this.procExitHandler = () => {
       if (this.automationProcess !== activeProcess) return;
-      this.automationProcess = null;
-      this.currentPlayingScriptPath = null;
-      this.currentRecordingScriptPath = null;
-      this.activeHotkeySlot = null;
-      this.stdoutBuffer = "";
-      this.mainWindow()?.webContents.send("automation-status", "STATUS|PROCESS_EXIT");
-      // Clear stored handlers since process exited
-      this.procStdoutHandler = null;
-      this.procStderrHandler = null;
-      this.procExitHandler = null;
+      this.teardownAfterProcessExit();
+    };
+
+    // Async spawn / runtime errors (ENOENT, EACCES, AV block, etc.) emit
+    // 'error' instead of throwing synchronously. Without this listener the
+    // event would crash the main process. We forward to the same teardown as
+    // exit so the UI receives PROCESS_EXIT and recovers.
+    this.procErrorHandler = (err: Error) => {
+      if (this.automationProcess !== activeProcess) return;
+      console.error("Automation process error:", err);
+      this.teardownAfterProcessExit();
     };
 
     activeProcess.stdout?.on("data", this.procStdoutHandler);
     activeProcess.stderr?.on("data", this.procStderrHandler);
     activeProcess.on("exit", this.procExitHandler);
+    activeProcess.on("error", this.procErrorHandler);
+  }
+
+  /**
+   * Shared teardown for both the 'exit' and 'error' events: reset playback
+   * state, drop the F10 hotkey, notify the UI, and clear the stored handler
+   * refs. Kept as one method so the exit and error paths can never drift.
+   */
+  private teardownAfterProcessExit(): void {
+    this.automationProcess = null;
+    this.currentPlayingScriptPath = null;
+    this.currentRecordingScriptPath = null;
+    this.activeHotkeySlot = null;
+    this.stdoutBuffer = "";
+    this.unregisterStopHotkey();
+    this.mainWindow()?.webContents.send("automation-status", "STATUS|PROCESS_EXIT");
+    this.procStdoutHandler = null;
+    this.procStderrHandler = null;
+    this.procExitHandler = null;
+    this.procErrorHandler = null;
   }
 
   private removeProcessHandlers(): void {
@@ -333,15 +410,23 @@ export class AutomationManager {
       if (this.procExitHandler) {
         this.automationProcess.removeListener("exit", this.procExitHandler);
       }
+      if (this.procErrorHandler) {
+        this.automationProcess.removeListener("error", this.procErrorHandler);
+      }
     }
     this.procStdoutHandler = null;
     this.procStderrHandler = null;
     this.procExitHandler = null;
+    this.procErrorHandler = null;
   }
 
   async startRecord(name: string): Promise<{ success: boolean; error?: string }> {
     this.ensureScriptDirs();
     this.killAutomationProcess();
+    // killAutomationProcess detaches the exit listener before SIGTERM, so
+    // a previously-registered playback F10 would otherwise survive into the
+    // record session and fire stopPlay() on F10 — killing the recording.
+    this.unregisterStopHotkey();
     this.currentPlayingScriptPath = null;
     this.activeHotkeySlot = null;
     const scriptPath = path.join(this.scriptsDir, `${name}.json`);
@@ -419,6 +504,10 @@ export class AutomationManager {
     }
 
     this.killAutomationProcess();
+    // killAutomationProcess detaches the exit listener before SIGTERM, so a
+    // stale F10 registration from the previous run could fire stopPlay()
+    // against the new process unexpectedly. Re-register cleanly below.
+    this.unregisterStopHotkey();
     this.activeHotkeySlot = null;
     this.currentRecordingScriptPath = null;
 
@@ -445,6 +534,7 @@ export class AutomationManager {
       });
 
       this.setupProcessHandlers();
+      this.registerStopHotkey();
 
       return { success: true };
     } catch (e: any) {
@@ -454,6 +544,7 @@ export class AutomationManager {
 
   async stopPlay(): Promise<{ success: boolean }> {
     const stoppedHotkeySlot = this.activeHotkeySlot;
+    this.unregisterStopHotkey();
     this.killAutomationProcess();
     this.currentPlayingScriptPath = null;
     this.activeHotkeySlot = null;
@@ -727,15 +818,34 @@ export class AutomationManager {
   }
 
   handleOCRResponse(
-    data: { requestId: string; text: string; matched: boolean },
+    data: {
+      requestId: string;
+      text: string;
+      matched: boolean;
+      error?: string;
+    },
   ): void {
+    // OCR subsystem failure (process crash, timeout, plugin not installed,
+    // preprocess error) must NOT be conflated with "condition not met".
+    // Otherwise a "stop on text X" script loops forever when OCR is broken.
+    // Treat failure as a forced stop and surface a distinct status to the UI.
+    const failed = !!data.error;
+
     console.log(
-      `OCR Result [id=${data.requestId}] from Renderer: "${data.text}", matched: ${data.matched}`,
+      `OCR Result [id=${data.requestId}] from Renderer: "${data.text}", matched: ${data.matched}${failed ? `, error: ${data.error}` : ""}`,
     );
-    this.mainWindow()?.webContents.send(
-      "automation-status",
-      `STATUS|OCR_RESULT|${data.requestId}|${data.matched ? "1" : "0"}|${encodeURIComponent(data.text ?? "")}`,
-    );
+
+    if (failed) {
+      this.mainWindow()?.webContents.send(
+        "automation-status",
+        `STATUS|OCR_FAILED|${data.requestId}|${encodeURIComponent(data.error!)}`,
+      );
+    } else {
+      this.mainWindow()?.webContents.send(
+        "automation-status",
+        `STATUS|OCR_RESULT|${data.requestId}|${data.matched ? "1" : "0"}|${encodeURIComponent(data.text ?? "")}`,
+      );
+    }
 
     // Persist OCR result
     const mapping = this.ocrRequestMap.get(data.requestId);
@@ -747,16 +857,24 @@ export class AutomationManager {
         runCount: this.currentRunCount,
         eventIndex: mapping.eventIndex,
         requestId: data.requestId,
-        recognizedText: data.text ?? "",
+        recognizedText: failed ? `[OCR 故障: ${data.error}]` : (data.text ?? ""),
         expectedText: mapping.expectedText,
-        matched: data.matched,
+        matched: failed ? false : data.matched,
       };
       this.ocrResultManager.saveResult(scriptName, entry);
     }
 
     if (this.currentPlayingScriptPath) {
       try {
-        if (data.matched) {
+        if (failed) {
+          console.log(
+            `OCR FAILED. Stopping automation [id=${data.requestId}]: ${data.error}`,
+          );
+          fs.writeFileSync(
+            `${this.currentPlayingScriptPath}.stop_script_${data.requestId}`,
+            "",
+          );
+        } else if (data.matched) {
           console.log(
             `OCR matched! Stopping automation [id=${data.requestId}].`,
           );
@@ -787,6 +905,7 @@ export class AutomationManager {
   }
 
   kill(): void {
+    this.unregisterStopHotkey();
     this.killAutomationProcess();
     this.ocrRequestMap.clear();
     this.currentRunCount = 0;

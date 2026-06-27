@@ -89,11 +89,14 @@ export const AutomationSlotsBar: React.FC = () => {
         action === "PROCESS_EXIT" ||
         action === "STOPPED" ||
         action === "CONDITION_MET" ||
-        action === "MAX_LOOPS_REACHED"
+        action === "MAX_LOOPS_REACHED" ||
+        action === "OCR_FAILED"
       ) {
         setRunningSlot(null);
         if (action === "HOTKEY_SLOT_STOPPED") {
           setMessage(`${parts[2]} stopped`);
+        } else if (action === "OCR_FAILED") {
+          setMessage("OCR 识别故障，已停止");
         }
         return;
       }

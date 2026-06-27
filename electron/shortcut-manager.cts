@@ -67,7 +67,16 @@ export class ShortcutManager {
   }
 
   registerBossKey(key: string): boolean {
-    globalShortcut.unregisterAll();
+    // Only unregister our own previous boss key, not every globalShortcut —
+    // other managers (e.g. AutomationManager's playback-stop F10) rely on
+    // their registrations surviving boss-key updates.
+    if (this.currentBossKey) {
+      try {
+        globalShortcut.unregister(this.currentBossKey);
+      } catch {
+        // ignore — may not have been registered
+      }
+    }
     try {
       const success = globalShortcut.register(key, () => {
         if (!this.mainWindow()) return;
@@ -93,7 +102,13 @@ export class ShortcutManager {
   }
 
   suspendBossKey(): void {
-    globalShortcut.unregisterAll();
+    if (this.currentBossKey) {
+      try {
+        globalShortcut.unregister(this.currentBossKey);
+      } catch {
+        // ignore
+      }
+    }
     console.log("Boss Key suspended");
   }
 

@@ -29,6 +29,25 @@ export const OCRSelectionOverlay: React.FC<OCRSelectionOverlayProps> = ({
   const [expectedText, setExpectedText] = useState("");
   const [showInput, setShowInput] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  // Map a viewport (CSS) point to the screenshot's natural pixel coordinates.
+  // The image is rendered with `object-contain`, so it is scaled uniformly and
+  // letterboxed; we invert that transform so selections are correct on any DPI.
+  const toImageCoords = (clientX: number, clientY: number) => {
+    const img = imgRef.current;
+    if (!img || !img.naturalWidth || !img.naturalHeight) {
+      return { x: clientX, y: clientY };
+    }
+    const r = img.getBoundingClientRect();
+    const scale = Math.min(r.width / img.naturalWidth, r.height / img.naturalHeight);
+    const offX = r.left + (r.width - img.naturalWidth * scale) / 2;
+    const offY = r.top + (r.height - img.naturalHeight * scale) / 2;
+    return {
+      x: Math.max(0, Math.min(img.naturalWidth, (clientX - offX) / scale)),
+      y: Math.max(0, Math.min(img.naturalHeight, (clientY - offY) / scale)),
+    };
+  };
 
   useEffect(() => {
     const fetchScreenshot = async () => {
@@ -78,8 +97,22 @@ export const OCRSelectionOverlay: React.FC<OCRSelectionOverlayProps> = ({
       : null;
 
   const handleConfirm = () => {
-    if (rect) {
-      onComplete({ ...rect, text: expectedText });
+    if (startPos && currentPos) {
+      // toImageCoords gives natural (device) pixels; persist in CSS pixels
+      // (natural / dpr) so the stored region matches the shared OCRRegion
+      // convention that preprocessImage scales back up by dpr. This keeps the
+      // accurate object-contain mapping while staying compatible with regions
+      // saved by older versions (which were already in CSS pixels).
+      const dpr = window.devicePixelRatio || 1;
+      const p1 = toImageCoords(startPos.x, startPos.y);
+      const p2 = toImageCoords(currentPos.x, currentPos.y);
+      onComplete({
+        x: Math.round(Math.min(p1.x, p2.x) / dpr),
+        y: Math.round(Math.min(p1.y, p2.y) / dpr),
+        w: Math.round(Math.abs(p2.x - p1.x) / dpr),
+        h: Math.round(Math.abs(p2.y - p1.y) / dpr),
+        text: expectedText,
+      });
     }
   };
 
@@ -94,8 +127,9 @@ export const OCRSelectionOverlay: React.FC<OCRSelectionOverlayProps> = ({
       ref={containerRef}
     >
       <img
+        ref={imgRef}
         src={screenshot}
-        className="w-full h-full object-cover pointer-events-none"
+        className="w-full h-full object-contain pointer-events-none"
         alt="screenshot"
       />
 

@@ -1,4 +1,5 @@
 import { spawn, ChildProcess } from "child_process";
+import { killProcessTree } from "./process-utils.cjs";
 import path from "path";
 import fs from "fs";
 import { app } from "electron";
@@ -22,6 +23,7 @@ export class OcrManager {
   private procStdoutHandler: ((data: Buffer) => void) | null = null;
   private procStderrHandler: ((data: Buffer) => void) | null = null;
   private procExitHandler: ((code: number | null) => void) | null = null;
+  private procErrorHandler: ((err: Error) => void) | null = null;
   private getPluginPath(): string {
     return path.join(os.homedir(), ".f-box", "plugins", "ocr");
   }
@@ -69,15 +71,29 @@ export class OcrManager {
     this.procExitHandler = (code) => {
       console.log("PaddleOCR-json exited with code:", code);
       this.process = null;
-      this.isProcessing = false;
       this.removeProcessHandlers();
-      // Retry pending queue? or reject?
-      // For now, let's try to restart on next request
+      // Reject everything pending — once the process is gone, the in-flight
+      // request has no response coming, and keeping queued requests around
+      // would let a restarted process answer them with mis-aligned outputs.
+      this.rejectAllPending(
+        new Error(`OCR process exited unexpectedly (code=${code})`),
+      );
+    };
+
+    // Async spawn / runtime errors (ENOENT, EACCES, AV block, etc.) emit
+    // 'error' instead of throwing synchronously. Without this listener the
+    // event would crash the main process. Mirrors exit-handler teardown.
+    this.procErrorHandler = (err) => {
+      console.error("PaddleOCR-json process error:", err);
+      this.process = null;
+      this.removeProcessHandlers();
+      this.rejectAllPending(new Error(`OCR process error: ${err.message}`));
     };
 
     this.process.stdout?.on("data", this.procStdoutHandler);
     this.process.stderr?.on("data", this.procStderrHandler);
     this.process.on("exit", this.procExitHandler);
+    this.process.on("error", this.procErrorHandler);
   }
 
   private removeProcessHandlers(): void {
@@ -91,10 +107,14 @@ export class OcrManager {
       if (this.procExitHandler) {
         this.process.removeListener("exit", this.procExitHandler);
       }
+      if (this.procErrorHandler) {
+        this.process.removeListener("error", this.procErrorHandler);
+      }
     }
     this.procStdoutHandler = null;
     this.procStderrHandler = null;
     this.procExitHandler = null;
+    this.procErrorHandler = null;
   }
 
   private handleData(data: Buffer) {
@@ -139,9 +159,50 @@ export class OcrManager {
     this.processQueue();
   }
 
+  private rejectAllPending(err: Error): void {
+    const pending = this.queue;
+    this.queue = [];
+    this.isProcessing = false;
+    this.buffer = "";
+    for (const req of pending) {
+      try {
+        req.reject(err);
+      } catch (e) {
+        // ignore — the wrapped reject (set in recognize) clears its own timer
+      }
+    }
+  }
+
   public async recognize(base64Image: string): Promise<any> {
     return new Promise((resolve, reject) => {
-      this.queue.push({ resolve, reject, image: base64Image });
+      const req: OcrRequest = { resolve, reject, image: base64Image };
+
+      // Per-request timeout: PaddleOCR-json can hang on first-load model
+      // init, corrupted images, or GPU/DLL faults. Without a deadline the
+      // caller waits forever and the automation breakpoint never resumes.
+      // 20s comfortably covers cold start + normal recognition (<1s).
+      const timeoutId = setTimeout(() => {
+        if (this.queue.includes(req)) {
+          console.warn(
+            "OCR request timed out after 20s, restarting OCR process",
+          );
+          // kill() rejects all pending requests (including this one via the
+          // wrapped reject below) and clears the process so the next
+          // recognize() call spawns a fresh one.
+          this.kill();
+        }
+      }, 20000);
+
+      req.resolve = (data) => {
+        clearTimeout(timeoutId);
+        resolve(data);
+      };
+      req.reject = (err) => {
+        clearTimeout(timeoutId);
+        reject(err);
+      };
+
+      this.queue.push(req);
       this.processQueue();
     });
   }
@@ -175,17 +236,16 @@ export class OcrManager {
   public kill() {
     this.removeProcessHandlers();
     if (this.process) {
+      const pid = this.process.pid;
       try {
         this.process.kill();
       } catch (e) {
         // ignore
       }
       this.process = null;
+      killProcessTree(pid);
     }
-    this.queue.forEach((req) => req.reject(new Error("OCR service stopped")));
-    this.queue = [];
-    this.isProcessing = false;
-    this.buffer = "";
+    this.rejectAllPending(new Error("OCR service stopped"));
   }
 
   public async install(

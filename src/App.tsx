@@ -96,8 +96,27 @@ const App: React.FC = () => {
             // Send base64 (without data prefix) to specific OCR handler
             const result = await window.electron.ocr(processedDataUrl);
 
+            // result.success === false means the OCR subsystem reported a
+            // failure (plugin missing, process crashed, request timed out,
+            // exe-level error). Treat as a fault \u2014 NOT as "condition not
+            // met" \u2014 so a "stop on text X" script doesn't loop forever
+            // when OCR is broken. Main writes .stop_script_<id> on error.
+            if (!result.success) {
+              console.error(
+                `Renderer: OCR failed [id=${data.requestId}]:`,
+                result.error,
+              );
+              window.electron.automation.ocrResponse({
+                requestId: data.requestId,
+                text: "",
+                matched: false,
+                error: result.error || "OCR \u8bc6\u522b\u5931\u8d25",
+              });
+              return;
+            }
+
             let detectedText = "";
-            if (result.success && result.data && result.data.code === 100) {
+            if (result.data && result.data.code === 100) {
               detectedText = result.data
                 .data!.map((item: { text?: string }) => item.text ?? "")
                 .join("");
@@ -130,10 +149,17 @@ const App: React.FC = () => {
             });
           } catch (err) {
             console.error(`Renderer: OCR Error [id=${data.requestId}]:`, err);
+            const message =
+              err instanceof Error
+                ? err.message
+                : typeof err === "string"
+                  ? err
+                  : String(err);
             window.electron.automation.ocrResponse({
               requestId: data.requestId,
               text: "",
               matched: false,
+              error: message || "OCR \u8c03\u7528\u5931\u8d25",
             });
           }
         });

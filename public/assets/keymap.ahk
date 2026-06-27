@@ -263,7 +263,12 @@ IsStickDirectionPressed(x, y, dir) {
 
 SendTargetDown(target, *) {
     try {
-        if !GetKeyState(target) { 
+        ; ^ ! + # { } are special in Send; emit as a literal {char} once.
+        if (StrLen(target) = 1 && InStr("^!+#{}", target)) {
+            Send("{" . target . "}")
+            return
+        }
+        if !GetKeyState(target) {
             Send("{" . target . " down}")
         }
     } catch as err {
@@ -273,6 +278,9 @@ SendTargetDown(target, *) {
 
 SendTargetUp(target, *) {
     try {
+        ; Literal special chars were already sent on down; nothing to release.
+        if (StrLen(target) = 1 && InStr("^!+#{}", target))
+            return
         Send("{" . target . " up}")
     } catch as err {
         LogError("SendTargetUp Error: " err.Message)

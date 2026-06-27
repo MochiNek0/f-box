@@ -5,6 +5,7 @@ import { Button } from "../../../common/Button";
 export const HotkeysTab: React.FC = () => {
   const { bossKey, setBossKey } = useSettingsStore();
   const [isRecording, setIsRecording] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleGlobalKeyDown = (e: KeyboardEvent) => {
     if (isRecording) {
@@ -28,6 +29,17 @@ export const HotkeysTab: React.FC = () => {
         .filter(Boolean)
         .join("+");
 
+      // Bare F10 is reserved as the automation playback-stop hotkey. If the
+      // boss key claimed it first, the playback-stop registration would
+      // silently fail. (Modifier combos like Ctrl+F10 are distinct
+      // accelerators and don't collide, so only block the lone "F10".)
+      if (combination === "F10") {
+        setError("F10 已被自动化「停止播放」占用，请选择其他按键");
+        setIsRecording(false);
+        return;
+      }
+
+      setError(null);
       setBossKey(combination);
       window.electron.updateBossKey(combination);
       setIsRecording(false);
@@ -90,12 +102,18 @@ export const HotkeysTab: React.FC = () => {
               )}
             </div>
             <Button
-              onClick={() => setIsRecording(!isRecording)}
+              onClick={() => {
+                setError(null);
+                setIsRecording(!isRecording);
+              }}
               variant={isRecording ? "danger" : "primary"}
             >
               {isRecording ? "取消" : "修改"}
             </Button>
           </div>
+          {error && (
+            <p className="mt-gr-2 text-[11px] text-red-400">{error}</p>
+          )}
         </div>
       </div>
     </section>
