@@ -305,6 +305,7 @@ export const KeymapTab: React.FC = () => {
                 <div
                   onContextMenu={(e) => {
                     e.preventDefault();
+                    setRecordingIndex(null);
                     setSelectorState({
                       index,
                       type: "source",
@@ -346,6 +347,7 @@ export const KeymapTab: React.FC = () => {
                 <div
                   onContextMenu={(e) => {
                     e.preventDefault();
+                    setRecordingIndex(null);
                     setSelectorState({
                       index,
                       type: "target",
