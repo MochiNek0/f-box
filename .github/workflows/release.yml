@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build portable
+        run: npm run dist:win:portable
+
+      - name: Package exe into zip
+        shell: pwsh
+        run: Compress-Archive -Path release/F-Box.exe -DestinationPath release/F-Box.zip -Force
+
+      - name: Generate changelog
+        id: changelog
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          PREV_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            echo "Changelog from $PREV_TAG to $TAG"
+            RANGE="${PREV_TAG}..${TAG}"
+          else
+            echo "No previous tag, listing all commits up to $TAG"
+            RANGE="$TAG"
+          fi
+          {
+            echo "## 更新内容"
+            echo ""
+            git log --no-merges --pretty=format:'- %s' "$RANGE"
+            echo ""
+          } > notes.md
+          echo "Generated notes:"
+          cat notes.md
+
+      - name: Create release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "F-Box" \
+            --notes-file notes.md \
+            release/F-Box.zip

@@ -1,7 +1,7 @@
 {
   "name": "f-box",
   "private": true,
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "A Flash Browser",
   "author": "MochiNeko",
   "type": "module",
@@ -17,7 +17,8 @@
     "dist:win:portable": "npm run build && electron-builder --win portable",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:mac:dmg": "npm run build && electron-builder --mac dmg",
-    "dist:mac:zip": "npm run build && electron-builder --mac zip"
+    "dist:mac:zip": "npm run build && electron-builder --mac zip",
+    "release": "node scripts/release.mjs"
   },
   "build": {
     "appId": "com.f-box.browser",
