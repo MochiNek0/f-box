@@ -12,10 +12,33 @@ export interface AutomationEvent {
   button?: string;
   x?: number;
   y?: number;
+  // Normalized (0..1) coordinates of the game surface for v2 isolation scripts.
+  nx?: number;
+  ny?: number;
   w?: number;
   h?: number;
   text?: string;
   t_trigger?: number;
+}
+
+// Game surface geometry snapshot passed to record/play so recorded
+// screen-absolute coordinates can be normalized and re-mapped for background
+// (isolated) playback via webContents.sendInputEvent.
+export interface GameGeometry {
+  webContentsId: number;
+  renderWidth: number;
+  renderHeight: number;
+  zoomFactor: number;
+  resolutionScale: number;
+  devicePixelRatio: number;
+  screenX: number;
+  screenY: number;
+  screenW: number;
+  screenH: number;
+}
+
+export interface AutomationTarget {
+  geometry: GameGeometry;
 }
 
 export interface OCRResultItem {
@@ -51,10 +74,17 @@ export interface AutomationHotkeySlots {
 }
 
 export interface AutomationAPI {
-  startRecord: (name: string) => Promise<{ success: boolean; error?: string }>;
+  startRecord: (
+    name: string,
+    target?: AutomationTarget | null,
+  ) => Promise<{ success: boolean; error?: string }>;
   stopRecord: () => Promise<{ success: boolean }>;
-  startPlay: (name: string) => Promise<{ success: boolean; error?: string }>;
+  startPlay: (
+    name: string,
+    target?: AutomationTarget | null,
+  ) => Promise<{ success: boolean; error?: string }>;
   stopPlay: () => Promise<{ success: boolean }>;
+  setActiveTarget: (target: AutomationTarget | null) => void;
   listScripts: () => Promise<string[]>;
   getHotkeySlots: () => Promise<AutomationHotkeySlots>;
   saveHotkeySlots: (
@@ -93,7 +123,12 @@ export interface AutomationAPI {
   }) => Promise<{ success: boolean; error?: string }>;
   getScriptEvents: (
     name: string,
-  ) => Promise<{ success: boolean; events?: any[]; error?: string }>;
+  ) => Promise<{
+    success: boolean;
+    events?: any[];
+    isolation?: boolean;
+    error?: string;
+  }>;
   getScreenshot: () => Promise<{ data: string } | { error: string }>;
   onOCRRequest: (
     callback: (data: {

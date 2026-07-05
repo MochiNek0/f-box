@@ -6,6 +6,11 @@ import React, {
   useLayoutEffect,
 } from "react";
 import { useTabStore } from "../../../store/useTabStore";
+import {
+  registerGameView,
+  unregisterGameView,
+} from "../../../store/gameViewRegistry";
+import type { GameGeometry } from "../../../types/electron";
 import { ZoomIn, ZoomOut, RefreshCw, ArrowLeft, Monitor } from "lucide-react";
 import { Button } from "../../common/Button";
 import { IconButton } from "../../common/IconButton";
@@ -23,6 +28,7 @@ type FlashWebviewElement = HTMLElement & {
   setZoomFactor: (factor: number) => void;
   openDevTools: () => void;
   reload: () => void;
+  getWebContentsId: () => number;
   addEventListener(type: string, listener: (event: any) => void): void;
   removeEventListener(type: string, listener: (event: any) => void): void;
 };
@@ -149,7 +155,7 @@ const getGameViewportMetrics = (
 };
 
 export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
-  const { backToLibrary, updateZoom, tabs } = useTabStore();
+  const { backToLibrary, updateZoom, tabs, activeTabId } = useTabStore();
   const gameResolutionMode = useSettingsStore(
     (state) => state.gameResolutionMode,
   );
@@ -158,6 +164,7 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
 
   const gameAreaRef = useRef<HTMLDivElement | null>(null);
   const webviewRef = useRef<FlashWebviewElement | null>(null);
+  const webContentsIdRef = useRef<number | null>(null); // guest id for playback injection
   const latestZoomRef = useRef(zoomFactor);
   const latestResolutionScaleRef = useRef(1);
   const [pid, setPid] = useState<number | null>(null);
@@ -190,6 +197,52 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
   const isOverflowingWidth = gameViewport.width > gameViewport.containerWidth;
   // For display in toolbar
   const actualResolutionScale = resolutionScale;
+
+  // Keep the latest guest surface size available to the imperative geometry
+  // getter (used by background-playback record/play).
+  const renderSizeRef = useRef({ w: renderWidth, h: renderHeight });
+  useEffect(() => {
+    renderSizeRef.current = { w: renderWidth, h: renderHeight };
+  }, [renderWidth, renderHeight]);
+
+  // Compute a fresh GameGeometry snapshot: guest surface size + on-screen
+  // physical-pixel rect of the displayed game. Screen rect lets record-time
+  // screen-absolute coords be normalized; renderWidth/Height map them back to
+  // guest coords at play time. Returns null until the guest is ready.
+  const computeGeometry = useCallback((): GameGeometry | null => {
+    const el = webviewRef.current;
+    const id = webContentsIdRef.current;
+    if (!el || id == null) return null;
+    const rect = el.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    return {
+      webContentsId: id,
+      renderWidth: renderSizeRef.current.w,
+      renderHeight: renderSizeRef.current.h,
+      zoomFactor: latestZoomRef.current,
+      resolutionScale: latestResolutionScaleRef.current,
+      devicePixelRatio: dpr,
+      screenX: (window.screenX + rect.left) * dpr,
+      screenY: (window.screenY + rect.top) * dpr,
+      screenW: rect.width * dpr,
+      screenH: rect.height * dpr,
+    };
+  }, []);
+
+  useEffect(() => {
+    registerGameView(id, computeGeometry);
+    return () => unregisterGameView(id);
+  }, [id, computeGeometry]);
+
+  // Push the active game's target (webContentsId + geometry) to main so the
+  // F3/F4/F5 hotkey playback path (which has no renderer call) can target it.
+  useEffect(() => {
+    if (id !== activeTabId) return;
+    const geometry = computeGeometry();
+    if (geometry) {
+      window.electron.automation.setActiveTarget({ geometry });
+    }
+  }, [id, activeTabId, computeGeometry, renderWidth, renderHeight, zoomFactor, resolutionScale]);
 
   const applyZoom = useCallback(() => {
     if (!webviewRef.current) {
@@ -273,6 +326,19 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       setIsRecovering(false);
       setCrashReason(null);
       applyZoom();
+      // Capture the guest webContents id for sendInputEvent-based playback.
+      try {
+        webContentsIdRef.current = webviewRef.current?.getWebContentsId() ?? null;
+      } catch {
+        webContentsIdRef.current = null;
+      }
+      // Now that the guest id exists, push the active target for hotkey play.
+      if (id === activeTabId) {
+        const geometry = computeGeometry();
+        if (geometry) {
+          window.electron.automation.setActiveTarget({ geometry });
+        }
+      }
       // A fresh dom-ready means the Flash plugin process may have respawned
       // (reload/navigation). Tell the speed manager so it can re-inject into
       // the new process immediately instead of waiting for its poll.

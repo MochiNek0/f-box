@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   ipcMain,
   globalShortcut,
+  webContents,
 } from "electron";
 import path from "path";
 import fs from "fs";
@@ -10,6 +11,17 @@ import { spawn, ChildProcess } from "child_process";
 import { OcrManager } from "./ocr.cjs";
 import { killProcessTree } from "./process-utils.cjs";
 import { OcrResultManager, OcrResultEntry } from "./ocr-result-manager.cjs";
+import { PlaybackEngine, PlaybackEvent } from "./playback-engine.cjs";
+import {
+  GameGeometry,
+  buildMetaEvent,
+  screenToNormalized,
+  scriptSupportsIsolation,
+} from "./automation-geometry.cjs";
+
+export interface AutomationTarget {
+  geometry: GameGeometry;
+}
 
 export interface BreakpointData {
   x: number;
@@ -65,6 +77,15 @@ export class AutomationManager {
   private procExitHandler: (() => void) | null = null;
   private procErrorHandler: ((err: Error) => void) | null = null;
   private stopHotkeyRegistered = false;
+  // Background (isolated) playback state
+  private playbackEngine: PlaybackEngine | null = null;
+  private recordGeometry: GameGeometry | null = null;
+  private activeTarget: AutomationTarget | null = null;
+  private breakpointResolvers = new Map<
+    string,
+    (decision: "continue" | "stop") => void
+  >();
+  private ocrRequestCounter = 0;
 
   constructor(
     getWindow: () => BrowserWindow | null,
@@ -255,21 +276,33 @@ export class AutomationManager {
     this.stopHotkeyRegistered = false;
   }
 
+  // Legacy (AHK) playback OCR request: parse the stdout line, then dispatch.
   private async handlePlaybackOCRRequest(line: string): Promise<void> {
     // Format: REQ|OCR|<requestId>|<index>|<x>|<y>|<w>|<h>|<text>
     const parts = line.split("|");
     const requestId = parts[2];
-    const index = parts[3];
+    const index = parseInt(parts[3]);
     const x = parseInt(parts[4]);
     const y = parseInt(parts[5]);
     const w = parseInt(parts[6]);
     const h = parseInt(parts[7]);
     const expectedText = parts.slice(8).join("|");
+    await this.dispatchOCRRequest(requestId, index, x, y, w, h, expectedText);
+  }
 
-    this.ocrRequestMap.set(requestId, {
-      eventIndex: parseInt(index),
-      expectedText,
-    });
+  // Shared capture + OCR-request dispatch for both legacy (AHK) and isolated
+  // (PlaybackEngine) breakpoints. Captures the HOST page (unaffected by the
+  // playback mechanism) and asks the renderer to OCR the region.
+  private async dispatchOCRRequest(
+    requestId: string,
+    eventIndex: number,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    expectedText: string,
+  ): Promise<void> {
+    this.ocrRequestMap.set(requestId, { eventIndex, expectedText });
 
     console.log(
       `Playback OCR Request [id=${requestId}]: Expected "${expectedText}" at (${x},${y},${w},${h})`,
@@ -283,7 +316,6 @@ export class AutomationManager {
       const screenshotData =
         "data:image/jpeg;base64," + imgBuffer.toString("base64");
 
-      // Request OCR from Renderer
       this.mainWindow()?.webContents.send("automation-ocr-request", {
         requestId,
         screenshotData,
@@ -292,20 +324,36 @@ export class AutomationManager {
       });
     } catch (e) {
       console.error("Playback OCR Request Error:", e);
-      if (this.currentPlayingScriptPath) {
-        // A capture failure is an OCR failure. Match handleOCRResponse: force
-        // a stop instead of continuing, otherwise a "stop on text X" script
-        // loops forever while capture keeps failing.
-        fs.writeFileSync(
-          `${this.currentPlayingScriptPath}.stop_script_${requestId}`,
-          "",
-        );
+      // A capture failure is an OCR failure: force a stop, otherwise a
+      // "stop on text X" script loops forever while capture keeps failing.
+      if (!this.resolveBreakpoint(requestId, "stop")) {
+        if (this.currentPlayingScriptPath) {
+          fs.writeFileSync(
+            `${this.currentPlayingScriptPath}.stop_script_${requestId}`,
+            "",
+          );
+        }
       }
       this.mainWindow()?.webContents.send(
         "automation-status",
         `STATUS|OCR_RESULT|${requestId}|0|OCR_REQUEST_FAILED`,
       );
     }
+  }
+
+  // Resolve a pending isolated-playback breakpoint. Returns true if one was
+  // waiting (so the caller skips the legacy signal-file path).
+  private resolveBreakpoint(
+    requestId: string,
+    decision: "continue" | "stop",
+  ): boolean {
+    const resolver = this.breakpointResolvers.get(requestId);
+    if (resolver) {
+      this.breakpointResolvers.delete(requestId);
+      resolver(decision);
+      return true;
+    }
+    return false;
   }
 
   private setupProcessHandlers(): void {
@@ -350,6 +398,12 @@ export class AutomationManager {
         } else if (trimmed.startsWith("STATUS|LOOP_START")) {
           const loopParts = trimmed.split("|");
           this.currentRunCount = parseInt(loopParts[2] || "0", 10);
+          this.mainWindow()?.webContents.send("automation-status", trimmed);
+        } else if (trimmed === "STATUS|RECORD_DONE") {
+          // AHK has written the raw (screen-absolute) script. Post-process it
+          // into a v2 isolation-capable script if we captured record-time
+          // geometry, then forward the status.
+          this.finalizeRecording();
           this.mainWindow()?.webContents.send("automation-status", trimmed);
         } else {
           this.mainWindow()?.webContents.send("automation-status", trimmed);
@@ -423,8 +477,12 @@ export class AutomationManager {
     this.procErrorHandler = null;
   }
 
-  async startRecord(name: string): Promise<{ success: boolean; error?: string }> {
+  async startRecord(
+    name: string,
+    target: AutomationTarget | null = null,
+  ): Promise<{ success: boolean; error?: string }> {
     this.ensureScriptDirs();
+    this.stopPlaybackEngine();
     this.killAutomationProcess();
     // killAutomationProcess detaches the exit listener before SIGTERM, so
     // a previously-registered playback F10 would otherwise survive into the
@@ -432,6 +490,11 @@ export class AutomationManager {
     this.unregisterStopHotkey();
     this.currentPlayingScriptPath = null;
     this.activeHotkeySlot = null;
+    // Snapshot the game surface geometry at record start so the raw
+    // screen-absolute coordinates can be normalized on RECORD_DONE. Null (no
+    // game open / not passed) => the recording stays a legacy screen-absolute
+    // script that plays via the physical AHK path.
+    this.recordGeometry = target?.geometry ?? this.activeTarget?.geometry ?? null;
     const scriptPath = path.join(this.scriptsDir, `${name}.json`);
     this.currentRecordingScriptPath = scriptPath;
 
@@ -453,6 +516,56 @@ export class AutomationManager {
     } catch (e: any) {
       return { success: false, error: e.message };
     }
+  }
+
+  // Rewrite the AHK-produced (screen-absolute) script into a v2 isolation
+  // script: add normalized nx/ny to each mouse event and prepend a meta
+  // sentinel carrying the record-time geometry. No-op when we lack geometry
+  // (legacy recording) or the file already has meta.
+  private finalizeRecording(): void {
+    const scriptPath = this.currentRecordingScriptPath;
+    const geo = this.recordGeometry;
+    if (!scriptPath || !geo) return;
+    try {
+      let content = fs.readFileSync(scriptPath, "utf-8");
+      if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
+      const events = JSON.parse(content);
+      if (!Array.isArray(events) || scriptSupportsIsolation(events)) return;
+
+      for (const evt of events) {
+        if (
+          evt &&
+          (evt.type === "mousemove" ||
+            evt.type === "mousedown" ||
+            evt.type === "mouseup" ||
+            evt.type === "mousewheel") &&
+          typeof evt.x === "number" &&
+          typeof evt.y === "number"
+        ) {
+          const { nx, ny } = screenToNormalized(evt.x, evt.y, geo);
+          evt.nx = nx;
+          evt.ny = ny;
+        }
+      }
+
+      const withMeta = [buildMetaEvent(geo), ...events];
+      fs.writeFileSync(scriptPath, JSON.stringify(withMeta, null, 2), "utf-8");
+    } catch (e) {
+      console.error("finalizeRecording failed:", e);
+    } finally {
+      this.recordGeometry = null;
+    }
+  }
+
+  // Stop and detach a running background playback engine (idempotent).
+  private stopPlaybackEngine(): void {
+    if (this.playbackEngine) {
+      this.playbackEngine.stop();
+      this.playbackEngine = null;
+    }
+    // Unblock any breakpoint the engine may be awaiting.
+    for (const [, resolve] of this.breakpointResolvers) resolve("stop");
+    this.breakpointResolvers.clear();
   }
 
   async saveScript(
@@ -487,6 +600,7 @@ export class AutomationManager {
   async startPlay(
     name: string,
     hotkeySlot: AutomationHotkeyKey | null = null,
+    target: AutomationTarget | null = null,
   ): Promise<{ success: boolean; error?: string }> {
     this.ensureScriptDirs();
     // Reset before each run; otherwise a non-looping script inherits the
@@ -510,6 +624,7 @@ export class AutomationManager {
       console.error("Error reading config for play:", e);
     }
 
+    this.stopPlaybackEngine();
     this.killAutomationProcess();
     // killAutomationProcess detaches the exit listener before SIGTERM, so a
     // stale F10 registration from the previous run could fire stopPlay()
@@ -517,6 +632,33 @@ export class AutomationManager {
     this.unregisterStopHotkey();
     this.activeHotkeySlot = null;
     this.currentRecordingScriptPath = null;
+
+    // Prefer background (isolated) playback for v2 scripts when a live game
+    // webview is available; fall back to the physical AHK path otherwise.
+    const events = this.loadScriptEvents(scriptPath);
+    const geo = target?.geometry ?? this.activeTarget?.geometry ?? null;
+    if (
+      events &&
+      scriptSupportsIsolation(events) &&
+      geo &&
+      typeof geo.webContentsId === "number"
+    ) {
+      const guest = webContents.fromId(geo.webContentsId);
+      if (guest && !guest.isDestroyed()) {
+        this.runIsolatedPlayback(
+          scriptPath,
+          guest,
+          events as PlaybackEvent[],
+          geo,
+          repeatCount,
+          hotkeySlot,
+        );
+        return { success: true };
+      }
+      console.warn(
+        "Isolation requested but guest webContents unavailable; using physical playback.",
+      );
+    }
 
     try {
       const runtime = this.getAutomationRuntime();
@@ -549,9 +691,103 @@ export class AutomationManager {
     }
   }
 
+  private loadScriptEvents(scriptPath: string): any[] | null {
+    try {
+      let content = fs.readFileSync(scriptPath, "utf-8");
+      if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
+      const parsed = JSON.parse(content);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch (e) {
+      console.error("Failed to load script events:", e);
+      return null;
+    }
+  }
+
+  private runIsolatedPlayback(
+    scriptPath: string,
+    guest: Electron.WebContents,
+    events: PlaybackEvent[],
+    geometry: GameGeometry,
+    maxLoops: number,
+    hotkeySlot: AutomationHotkeyKey | null,
+  ): void {
+    this.currentPlayingScriptPath = scriptPath;
+    this.activeHotkeySlot = hotkeySlot;
+
+    const engine = new PlaybackEngine(guest, events, geometry, maxLoops, {
+      onStatus: (line) => this.handleEngineStatus(line),
+      onBreakpoint: (evt, eventIndex) =>
+        this.requestPlaybackOCR(evt, eventIndex),
+      onDone: () => this.teardownAfterPlayback(),
+    });
+    this.playbackEngine = engine;
+    this.registerStopHotkey();
+
+    engine.run().catch((e) => {
+      console.error("PlaybackEngine error:", e);
+      this.teardownAfterPlayback();
+    });
+  }
+
+  // Route engine status lines through the same handling as the AHK stdout
+  // path (keep currentRunCount fresh for OCR-result persistence) and forward.
+  private handleEngineStatus(line: string): void {
+    if (line.startsWith("STATUS|LOOP_START")) {
+      const parts = line.split("|");
+      this.currentRunCount = parseInt(parts[2] || "0", 10);
+    }
+    this.mainWindow()?.webContents.send("automation-status", line);
+  }
+
+  private async requestPlaybackOCR(
+    evt: PlaybackEvent,
+    eventIndex: number,
+  ): Promise<"continue" | "stop"> {
+    if (!this.ocrManager || !this.ocrManager.isInstalled()) {
+      console.warn("Breakpoint hit but OCR not installed; continuing.");
+      this.mainWindow()?.webContents.send(
+        "automation-status",
+        "STATUS|OCR_NOT_INSTALLED",
+      );
+      return "continue";
+    }
+    const requestId = `bp_${++this.ocrRequestCounter}`;
+    const promise = new Promise<"continue" | "stop">((resolve) =>
+      this.breakpointResolvers.set(requestId, resolve),
+    );
+    await this.dispatchOCRRequest(
+      requestId,
+      eventIndex,
+      evt.x ?? 0,
+      evt.y ?? 0,
+      evt.w ?? 0,
+      evt.h ?? 0,
+      evt.text ?? "",
+    );
+    return promise;
+  }
+
+  // Shared post-playback cleanup for the engine path (natural finish, stop, or
+  // error). Idempotent — safe to call more than once.
+  private teardownAfterPlayback(): void {
+    this.playbackEngine = null;
+    this.currentPlayingScriptPath = null;
+    this.activeHotkeySlot = null;
+    this.unregisterStopHotkey();
+    for (const [, resolve] of this.breakpointResolvers) resolve("stop");
+    this.breakpointResolvers.clear();
+    this.mainWindow()?.webContents.send(
+      "automation-status",
+      "STATUS|PROCESS_EXIT",
+    );
+  }
+
   async stopPlay(): Promise<{ success: boolean }> {
     const stoppedHotkeySlot = this.activeHotkeySlot;
     this.unregisterStopHotkey();
+    // Engine path: signal stop and let its onDone teardown fire PROCESS_EXIT.
+    this.stopPlaybackEngine();
+    // Legacy path: kill the process (its exit handler fires PROCESS_EXIT).
     this.killAutomationProcess();
     this.currentPlayingScriptPath = null;
     this.activeHotkeySlot = null;
@@ -589,7 +825,10 @@ export class AutomationManager {
       };
     }
 
-    if (this.automationProcess && !this.automationProcess.killed) {
+    const playbackActive =
+      !!this.playbackEngine ||
+      (this.automationProcess !== null && !this.automationProcess.killed);
+    if (playbackActive) {
       if (this.currentPlayingScriptPath && this.activeHotkeySlot === key) {
         await this.stopPlay();
         return { handled: true, success: true, action: "stop", key, scriptName };
@@ -674,7 +913,12 @@ export class AutomationManager {
 
   async getScriptEvents(
     name: string,
-  ): Promise<{ success: boolean; events?: any[]; error?: string }> {
+  ): Promise<{
+    success: boolean;
+    events?: any[];
+    isolation?: boolean;
+    error?: string;
+  }> {
     this.ensureScriptDirs();
     const scriptPath = path.join(this.scriptsDir, `${name}.json`);
     try {
@@ -685,10 +929,14 @@ export class AutomationManager {
       if (content.charCodeAt(0) === 0xFEFF) {
         content = content.slice(1);
       }
-      const events = JSON.parse(content);
+      const parsed = JSON.parse(content);
+      const isolation = scriptSupportsIsolation(parsed);
+      // Hide the meta sentinel from the UI; it's an internal header, not an
+      // input event.
+      const events = parsed.filter((e: any) => e.type !== "meta");
       const breakpointsFound = events.filter((e: any) => e.type === "breakpoint").length;
-      console.log(`[Backend Debug] getScriptEvents loaded ${events.length} events for ${name}. Breakpoints: ${breakpointsFound}`);
-      return { success: true, events };
+      console.log(`[Backend Debug] getScriptEvents loaded ${events.length} events for ${name}. Breakpoints: ${breakpointsFound}, isolation: ${isolation}`);
+      return { success: true, events, isolation };
     } catch (e: any) {
       return { success: false, error: e.message };
     }
@@ -730,9 +978,12 @@ export class AutomationManager {
 
   setupIPCHandlers(): void {
     // Start Recording
-    ipcMain.handle("automation-start-record", async (_event, name: string) => {
-      return this.startRecord(name);
-    });
+    ipcMain.handle(
+      "automation-start-record",
+      async (_event, name: string, target?: AutomationTarget | null) => {
+        return this.startRecord(name, target ?? null);
+      },
+    );
 
     // Save Script Directly
     ipcMain.handle(
@@ -748,9 +999,21 @@ export class AutomationManager {
     });
 
     // Start Playing
-    ipcMain.handle("automation-start-play", async (_event, name: string) => {
-      return this.startPlay(name);
-    });
+    ipcMain.handle(
+      "automation-start-play",
+      async (_event, name: string, target?: AutomationTarget | null) => {
+        return this.startPlay(name, null, target ?? null);
+      },
+    );
+
+    // Cache the active game webview target (webContentsId + geometry) for the
+    // F3/F4/F5 hotkey playback path, which has no renderer call to pass it.
+    ipcMain.on(
+      "automation-set-active-target",
+      (_event, target: AutomationTarget | null) => {
+        this.activeTarget = target ?? null;
+      },
+    );
 
     // Stop Playing
     ipcMain.handle("automation-stop-play", async () => {
@@ -871,19 +1134,23 @@ export class AutomationManager {
       this.ocrResultManager.saveResult(scriptName, entry);
     }
 
+    const decision: "continue" | "stop" =
+      failed || data.matched ? "stop" : "continue";
+
+    // Isolated (PlaybackEngine) playback: resolve the in-process promise
+    // instead of the legacy signal-file handshake.
+    if (this.resolveBreakpoint(data.requestId, decision)) {
+      console.log(
+        `OCR [id=${data.requestId}] resolved isolated breakpoint -> ${decision}`,
+      );
+      return;
+    }
+
     if (this.currentPlayingScriptPath) {
       try {
-        if (failed) {
+        if (decision === "stop") {
           console.log(
-            `OCR FAILED. Stopping automation [id=${data.requestId}]: ${data.error}`,
-          );
-          fs.writeFileSync(
-            `${this.currentPlayingScriptPath}.stop_script_${data.requestId}`,
-            "",
-          );
-        } else if (data.matched) {
-          console.log(
-            `OCR matched! Stopping automation [id=${data.requestId}].`,
+            `OCR ${failed ? "FAILED" : "matched"}. Stopping automation [id=${data.requestId}].`,
           );
           fs.writeFileSync(
             `${this.currentPlayingScriptPath}.stop_script_${data.requestId}`,
@@ -913,12 +1180,14 @@ export class AutomationManager {
 
   kill(): void {
     this.unregisterStopHotkey();
+    this.stopPlaybackEngine();
     this.killAutomationProcess();
     this.ocrRequestMap.clear();
     this.currentRunCount = 0;
   }
 
   cleanupIPCHandlers(): void {
+    ipcMain.removeAllListeners("automation-set-active-target");
     const channels = [
       "automation-start-record",
       "automation-save-script",

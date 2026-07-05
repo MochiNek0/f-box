@@ -23,6 +23,8 @@ import {
 import type { OcrResultEntry } from "../../../../types/electron";
 import { IconButton } from "../../../common/IconButton";
 import { NumberInput } from "../../../common/NumberInput";
+import { useTabStore } from "../../../../store/useTabStore";
+import { getGeometryForTab } from "../../../../store/gameViewRegistry";
 
 const isWindows = () => window.electron.getPlatform() === "win32";
 
@@ -89,6 +91,8 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
   // Config for expanded script
   const [repeatCount, setRepeatCount] = useState(0);
   const [scriptEvents, setScriptEvents] = useState<any[]>([]);
+  // Whether the expanded script supports background (isolated) playback.
+  const [scriptIsolation, setScriptIsolation] = useState(false);
   const [ocrInstalled, setOcrInstalled] = useState(false);
   const [isInstallingOcr, setIsInstallingOcr] = useState(false);
   const [ocrResults, setOcrResults] = useState<OcrResultEntry[]>([]);
@@ -236,8 +240,10 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
             console.log(result.events);
 
             setScriptEvents(result.events);
+            setScriptIsolation(!!result.isolation);
           } else {
             setScriptEvents([]);
+            setScriptIsolation(false);
           }
         });
       // Load OCR results
@@ -249,6 +255,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
         });
     } else {
       setScriptEvents([]);
+      setScriptIsolation(false);
       setOcrResults([]);
       setCurrentPage(1);
     }
@@ -262,7 +269,11 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
 
     setLoopCount(0);
     setStatusMessage("正在启动播放...");
-    const result = await window.electron.automation.startPlay(name);
+    // Grab a fresh geometry snapshot of the active game webview so a v2 script
+    // can play in the background (isolated) instead of on the physical devices.
+    const geometry = getGeometryForTab(useTabStore.getState().activeTabId);
+    const target = geometry ? { geometry } : null;
+    const result = await window.electron.automation.startPlay(name, target);
     if (result.success) {
       setIsPlaying(true);
       setPlayingScript(name);
@@ -538,6 +549,19 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
                 {/* Expanded Config Panel */}
                 {expandedScript === name && (
                   <div className="px-4 pb-4 border-t border-zinc-800/50 pt-3 space-y-3">
+                    {/* Background-playback capability hint */}
+                    <div
+                      className={`text-[11px] rounded-md px-2.5 py-1.5 ${
+                        scriptIsolation
+                          ? "bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
+                          : "bg-amber-500/10 text-amber-300 border border-amber-500/20"
+                      }`}
+                    >
+                      {scriptIsolation
+                        ? "后台播放：回放时不占用你的真实鼠标键盘。"
+                        : "旧格式脚本：回放会占用真实鼠标键盘。重新录制即可支持后台播放。"}
+                    </div>
+
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="text-xs text-zinc-400 block mb-2">

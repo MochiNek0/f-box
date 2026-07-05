@@ -46,12 +46,14 @@ contextBridge.exposeInMainWorld("electron", {
 
   // Automation API
   automation: {
-    startRecord: (name: string) =>
-      ipcRenderer.invoke("automation-start-record", name),
+    startRecord: (name: string, target?: any) =>
+      ipcRenderer.invoke("automation-start-record", name, target ?? null),
     stopRecord: () => ipcRenderer.invoke("automation-stop-record"),
-    startPlay: (name: string) =>
-      ipcRenderer.invoke("automation-start-play", name),
+    startPlay: (name: string, target?: any) =>
+      ipcRenderer.invoke("automation-start-play", name, target ?? null),
     stopPlay: () => ipcRenderer.invoke("automation-stop-play"),
+    setActiveTarget: (target: any) =>
+      ipcRenderer.send("automation-set-active-target", target ?? null),
     listScripts: () => ipcRenderer.invoke("automation-list-scripts"),
     getHotkeySlots: () =>
       ipcRenderer.invoke("automation-get-hotkey-slots"),

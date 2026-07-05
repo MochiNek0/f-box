@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Circle, Square, X } from "lucide-react";
 import { IconButton } from "../../common/IconButton";
+import { useTabStore } from "../../../store/useTabStore";
+import { getGeometryForTab } from "../../../store/gameViewRegistry";
 
 interface RecorderToolbarProps {
   initialName: string;
@@ -35,7 +37,15 @@ export const RecorderToolbar: React.FC<RecorderToolbarProps> = ({
 
   const handleStart = async () => {
     if (!initialName) return;
-    const result = await window.electron.automation.startRecord(initialName);
+    // Snapshot the active game surface geometry so the recording can be saved
+    // as a v2 isolation script (background playback). Null (no game open) =>
+    // legacy screen-absolute recording.
+    const geometry = getGeometryForTab(useTabStore.getState().activeTabId);
+    const target = geometry ? { geometry } : null;
+    const result = await window.electron.automation.startRecord(
+      initialName,
+      target,
+    );
     if (!result.success) {
       alert(`启动录制失败: ${result.error}`);
     }
