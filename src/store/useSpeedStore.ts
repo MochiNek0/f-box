@@ -1,5 +1,15 @@
 import { create } from "zustand";
 
+// The speed hack feeds a scaled time delta to the game via timer hooks.
+// Extreme multipliers make Flash's frame/timer logic overflow or starve and
+// are a leading cause of plugin crashes, so cap the effective value and warn
+// the user above the threshold where crashes get likely.
+const MAX_SAFE_SPEED = 128;
+const SPEED_WARN_THRESHOLD = 16;
+const clampSpeed = (m: number) => Math.min(MAX_SAFE_SPEED, m);
+const withCrashWarning = (m: number, base: string) =>
+  m > SPEED_WARN_THRESHOLD ? `${base}（高倍速可能导致游戏崩溃）` : base;
+
 interface SpeedStatus {
   active: boolean;
   speed: number;
@@ -16,6 +26,7 @@ interface SpeedActions {
   applyPendingSpeed: () => Promise<void>;
   resetToOriginalSpeed: () => Promise<void>;
   setSpeed: (multiplier: number) => Promise<void>;
+  syncStatus: (status: { active: boolean; speed: number }) => void;
   clearMessage: () => void;
 }
 
@@ -41,13 +52,16 @@ export const useSpeedStore = create<SpeedStatus & SpeedActions>((set, get) => ({
     set({ isLoading: true, statusMessage: "正在注入变速..." });
     const result = await window.electron.speed.start();
     if (result.success) {
-      const pendingMultiplier = get().pendingMultiplier;
+      const pendingMultiplier = clampSpeed(get().pendingMultiplier);
       const speedResult = await window.electron.speed.setSpeed(pendingMultiplier);
       if (speedResult.success) {
         set({
           active: true,
           speed: pendingMultiplier,
-          statusMessage: `已启用 ${pendingMultiplier}x 变速`,
+          statusMessage: withCrashWarning(
+            pendingMultiplier,
+            `已启用 ${pendingMultiplier}x 变速`,
+          ),
         });
       } else {
         set({
@@ -76,7 +90,7 @@ export const useSpeedStore = create<SpeedStatus & SpeedActions>((set, get) => ({
 
   setPendingMultiplier: (multiplier: number) => {
     if (Number.isFinite(multiplier) && multiplier > 0) {
-      set({ pendingMultiplier: multiplier });
+      set({ pendingMultiplier: clampSpeed(multiplier) });
     }
   },
 
@@ -101,6 +115,7 @@ export const useSpeedStore = create<SpeedStatus & SpeedActions>((set, get) => ({
     if (!Number.isFinite(multiplier) || multiplier <= 0) {
       return;
     }
+    multiplier = clampSpeed(multiplier);
     if (get().active) {
       const result = await window.electron.speed.setSpeed(multiplier);
       if (result.success) {
@@ -109,7 +124,7 @@ export const useSpeedStore = create<SpeedStatus & SpeedActions>((set, get) => ({
           statusMessage:
             multiplier === 1
               ? "已切回原速"
-              : `速度已设置为 ${multiplier}x`,
+              : withCrashWarning(multiplier, `速度已设置为 ${multiplier}x`),
         });
       } else {
         set({ statusMessage: result.error || "速度设置失败" });
@@ -118,6 +133,25 @@ export const useSpeedStore = create<SpeedStatus & SpeedActions>((set, get) => ({
     } else {
       set({ speed: multiplier });
     }
+  },
+
+  // Applied when the main process pushes a state change the renderer didn't
+  // initiate — the Flash-process watchdog auto re-injecting after a game
+  // reload, or invalidating when the Flash process is gone. Keeps the UI
+  // honest instead of stuck showing "变速中" over a dead injection.
+  syncStatus: (status) => {
+    set((state) => ({
+      active: status.active,
+      speed: status.speed,
+      pendingMultiplier:
+        status.active && status.speed > 1
+          ? status.speed
+          : state.pendingMultiplier,
+      statusMessage: status.active
+        ? `已自动恢复 ${status.speed}x 变速`
+        : "游戏已重载，变速已复位",
+    }));
+    setTimeout(() => get().clearMessage(), 4000);
   },
 
   clearMessage: () => set({ statusMessage: "" }),

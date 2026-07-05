@@ -293,8 +293,11 @@ export class AutomationManager {
     } catch (e) {
       console.error("Playback OCR Request Error:", e);
       if (this.currentPlayingScriptPath) {
+        // A capture failure is an OCR failure. Match handleOCRResponse: force
+        // a stop instead of continuing, otherwise a "stop on text X" script
+        // loops forever while capture keeps failing.
         fs.writeFileSync(
-          `${this.currentPlayingScriptPath}.continue_${requestId}`,
+          `${this.currentPlayingScriptPath}.stop_script_${requestId}`,
           "",
         );
       }
@@ -486,6 +489,10 @@ export class AutomationManager {
     hotkeySlot: AutomationHotkeyKey | null = null,
   ): Promise<{ success: boolean; error?: string }> {
     this.ensureScriptDirs();
+    // Reset before each run; otherwise a non-looping script inherits the
+    // previous run's LOOP_START count and stamps stale runCount into saved
+    // OCR results.
+    this.currentRunCount = 0;
 
     const scriptPath = path.join(this.scriptsDir, `${name}.json`);
     if (!fs.existsSync(scriptPath)) {

@@ -90,10 +90,10 @@ enabled=1
       return;
     }
 
-    if (this.ahkProcess) {
-      this.ahkProcess.kill();
-      this.ahkProcess = null;
-    }
+    // Use the full teardown (removes the error listener + kills the child
+    // tree via killProcessTree). A bare kill()+null here left the later
+    // killAHK() a no-op and orphaned the previous process's child tree.
+    this.killAHK();
 
     let enabled: boolean;
     try {
@@ -114,9 +114,6 @@ enabled=1
       return;
     }
 
-    // Kill any previous AHK process before spawning a new one
-    this.killAHK();
-
     this.ahkProcess = spawn(ahkPath, [this.configPath, process.pid.toString()]);
     this.ahkErrorHandler = (err: any) => {
       console.error("AHK 启动失败:", err);
@@ -126,8 +123,9 @@ enabled=1
 
   suspendKeymap(): void {
     if (this.ahkProcess) {
-      this.ahkProcess.kill();
-      this.ahkProcess = null;
+      // Same reason as startAHK: go through killAHK() so the child tree is
+      // reaped and the error listener detached, not just the parent signalled.
+      this.killAHK();
       console.log("Keymap (AHK) suspended");
     }
   }

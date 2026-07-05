@@ -39,6 +39,21 @@ const MAX_GAME_WIDTH = 3840;
 const MAX_RESOLUTION_SCALE = 2;
 const MAX_WEBVIEW_ZOOM = 5;
 
+// Upper bound on the webview backing-store size. renderWidth×renderHeight can
+// otherwise reach ~7680×2160 (≈16.6M px, a ~66MB bitmap) on a wide HiDPI
+// display, starving the Flash plugin process's memory and crashing it. Cap the
+// area and let the resolution scale drop to fit.
+const MAX_BACKING_PIXELS = 1920 * 1080 * 4;
+
+// Auto-recover from a transient plugin crash by silently reloading once,
+// before falling back to the manual crash screen. Bounded so a game that
+// crashes on load can't reload forever.
+const MAX_AUTO_RELOADS = 1;
+const AUTO_RELOAD_BACKOFF_MS = 800;
+// The game must stay alive this long after load before we consider it stable
+// and re-arm the auto-reload budget for a future, unrelated crash.
+const CRASH_STABLE_RESET_MS = 30000;
+
 /**
  * Clean resolution scale values that produce exact inverse fractions.
  * Using these avoids sub-pixel blurring from irrational scale factors
@@ -86,6 +101,22 @@ const getAutoResolutionScale = (): number => {
   return best;
 };
 
+/**
+ * Largest clean resolution scale (never below 1) whose backing store stays
+ * within MAX_BACKING_PIXELS. Preserves the pixel-aligned clean fractions while
+ * preventing the oversized-surface OOM that crashes the plugin.
+ */
+const getBudgetedResolutionScale = (width: number, height: number): number => {
+  const auto = getAutoResolutionScale();
+  let best = 1;
+  for (const s of CLEAN_RESOLUTION_SCALES) {
+    if (s <= auto && width * height * s * s <= MAX_BACKING_PIXELS) {
+      best = s;
+    }
+  }
+  return best;
+};
+
 const getGameViewportMetrics = (
   container: HTMLDivElement,
   mode: GameResolutionMode,
@@ -104,14 +135,16 @@ const getGameViewportMetrics = (
 
   const screenLimitedWidth = Math.min(containerWidth, getScreenCssWidth());
 
+  const width = Math.min(
+    MAX_GAME_WIDTH,
+    Math.max(DEFAULT_GAME_WIDTH, screenLimitedWidth),
+  );
+
   return {
     containerWidth,
-    width: Math.min(
-      MAX_GAME_WIDTH,
-      Math.max(DEFAULT_GAME_WIDTH, screenLimitedWidth),
-    ),
+    width,
     height,
-    resolutionScale: getAutoResolutionScale(),
+    resolutionScale: getBudgetedResolutionScale(width, height),
   };
 };
 
@@ -129,7 +162,11 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
   const latestResolutionScaleRef = useRef(1);
   const [pid, setPid] = useState<number | null>(null);
   const [isCrashed, setIsCrashed] = useState(false);
+  const [isRecovering, setIsRecovering] = useState(false);
   const [crashReason, setCrashReason] = useState<string | null>(null);
+  const crashReloadAttemptsRef = useRef(0);
+  const autoReloadTimerRef = useRef<number | null>(null);
+  const stableTimerRef = useRef<number | null>(null);
   const [gameViewport, setGameViewport] = useState<GameViewportMetrics>({
     containerWidth: DEFAULT_GAME_WIDTH,
     width: DEFAULT_GAME_WIDTH,
@@ -233,8 +270,21 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
 
     const onDomReady = async () => {
       setIsCrashed(false);
+      setIsRecovering(false);
       setCrashReason(null);
       applyZoom();
+      // A fresh dom-ready means the Flash plugin process may have respawned
+      // (reload/navigation). Tell the speed manager so it can re-inject into
+      // the new process immediately instead of waiting for its poll.
+      window.electron.speed?.notifyFlashChanged?.();
+      // Re-arm the auto-reload budget only once the game has stayed alive a
+      // while — resetting immediately would let a crash-on-load game reload
+      // forever.
+      if (stableTimerRef.current) window.clearTimeout(stableTimerRef.current);
+      stableTimerRef.current = window.setTimeout(() => {
+        stableTimerRef.current = null;
+        crashReloadAttemptsRef.current = 0;
+      }, CRASH_STABLE_RESET_MS);
       try {
         // Get the actual Flash plugin process PID instead of the webview PID
         const osPid = await window.electron.getFlashPid();
@@ -244,16 +294,49 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       }
     };
 
+    const recover = (reason: string) => {
+      // A crash means we weren't stable — cancel any pending "re-arm" timer.
+      if (stableTimerRef.current) {
+        window.clearTimeout(stableTimerRef.current);
+        stableTimerRef.current = null;
+      }
+      window.electron.speed?.notifyFlashChanged?.();
+      setCrashReason(reason);
+
+      if (crashReloadAttemptsRef.current < MAX_AUTO_RELOADS) {
+        // Silently reload after a short backoff instead of alarming the user.
+        crashReloadAttemptsRef.current += 1;
+        setIsCrashed(false);
+        setIsRecovering(true);
+        const delay = AUTO_RELOAD_BACKOFF_MS * crashReloadAttemptsRef.current;
+        if (autoReloadTimerRef.current) {
+          window.clearTimeout(autoReloadTimerRef.current);
+        }
+        autoReloadTimerRef.current = window.setTimeout(() => {
+          autoReloadTimerRef.current = null;
+          try {
+            webviewRef.current?.reload();
+          } catch (err) {
+            console.warn("Auto-reload failed:", err);
+            setIsRecovering(false);
+            setIsCrashed(true);
+          }
+        }, delay);
+      } else {
+        // Auto-recovery exhausted — show the crash screen for manual reload.
+        setIsRecovering(false);
+        setIsCrashed(true);
+      }
+    };
+
     const onCrashed = (e: any) => {
       console.error("Webview crashed:", e);
-      setIsCrashed(true);
-      setCrashReason(e.reason || "unknown");
+      recover(e.reason || "unknown");
     };
 
     const onPluginCrashed = (e: any) => {
       console.error("Flash plugin crashed:", e);
-      setIsCrashed(true);
-      setCrashReason("plugin-crashed");
+      recover("plugin-crashed");
     };
 
     const onNavigation = () => {
@@ -277,6 +360,14 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       webview.removeEventListener("did-stop-loading", onNavigation);
       webview.removeEventListener("render-process-gone", onCrashed);
       webview.removeEventListener("plugin-crashed", onPluginCrashed);
+      if (autoReloadTimerRef.current) {
+        window.clearTimeout(autoReloadTimerRef.current);
+        autoReloadTimerRef.current = null;
+      }
+      if (stableTimerRef.current) {
+        window.clearTimeout(stableTimerRef.current);
+        stableTimerRef.current = null;
+      }
     };
   }, [id, url, applyZoom]);
 
@@ -289,7 +380,10 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
 
   const handleReload = () => {
     if (webviewRef.current) {
+      // Manual reload — give auto-recovery a fresh budget for future crashes.
+      crashReloadAttemptsRef.current = 0;
       setIsCrashed(false);
+      setIsRecovering(false);
       setCrashReason(null);
       webviewRef.current.reload();
     }
@@ -358,6 +452,19 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
 
       {/* Webview Container */}
       <div className="flex-grow pt-10 overflow-hidden bg-zinc-900 relative">
+        {isRecovering && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-900/85 backdrop-blur-sm text-white p-gr-6 text-center">
+            <div className="w-14 h-14 bg-primary/15 rounded-full flex items-center justify-center mb-gr-4 border border-primary/30">
+              <RefreshCw size={28} className="text-primary animate-spin" />
+            </div>
+            <h3 className="text-lg font-black uppercase tracking-widest mb-gr-2">
+              正在自动恢复游戏…
+            </h3>
+            <p className="text-zinc-400 text-sm max-w-md">
+              游戏出现异常，正在自动重新加载。
+            </p>
+          </div>
+        )}
         {isCrashed && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-900/90 backdrop-blur-sm text-white p-gr-6 text-center">
             <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mb-gr-4 border border-red-500/30">

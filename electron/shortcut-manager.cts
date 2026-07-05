@@ -153,7 +153,17 @@ export class ShortcutManager {
 
   dispose(): void {
     this.cleanupIPCHandlers();
-    globalShortcut.unregisterAll();
+    // Only unregister our own boss key — consistent with registerBossKey's
+    // scoping. Other managers own (and clean up) their own shortcuts;
+    // unregisterAll() would silently kill theirs if dispose() is ever called
+    // before final teardown.
+    if (this.currentBossKey) {
+      try {
+        globalShortcut.unregister(this.currentBossKey);
+      } catch {
+        // ignore
+      }
+    }
     if (this.tray) {
       this.tray.destroy();
       this.tray = null;

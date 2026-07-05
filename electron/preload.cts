@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld("electron", {
   updateBossKey: (key: string) => ipcRenderer.send("update-boss-key", key),
   openExternal: (url: string) => ipcRenderer.send("open-external", url),
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
+  getExperimentalFlags: () => ipcRenderer.invoke("get-experimental-flags"),
+  setExperimentalFlags: (flags: { flashStability?: boolean }) =>
+    ipcRenderer.invoke("set-experimental-flags", flags),
   getKeymapConfig: () => ipcRenderer.invoke("get-keymap-config"),
   getFlashPid: () => ipcRenderer.invoke("get-flash-pid"),
   saveKeymapConfig: (config: any) =>
@@ -149,5 +152,21 @@ contextBridge.exposeInMainWorld("electron", {
         ipcRenderer.removeListener("speed-shortcut", listener);
       };
     },
+    onStateChanged: (
+      callback: (status: {
+        active: boolean;
+        speed: number;
+        pid: number | null;
+      }) => void,
+    ) => {
+      const listener = (_event: Electron.IpcRendererEvent, status: any) => {
+        callback(status);
+      };
+      ipcRenderer.on("speed-state", listener);
+      return () => {
+        ipcRenderer.removeListener("speed-state", listener);
+      };
+    },
+    notifyFlashChanged: () => ipcRenderer.send("speed-flash-changed"),
   },
 });

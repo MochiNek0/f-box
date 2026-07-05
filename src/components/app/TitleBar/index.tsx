@@ -17,7 +17,9 @@ interface TitleBarProps {
   onSettingsClick: () => void;
 }
 
-const SPEED_PRESETS = [4, 8, 16, 32, 64] as const;
+// Capped at 128x — higher multipliers frequently crash the Flash plugin (see
+// useSpeedStore MAX_SAFE_SPEED).
+const SPEED_PRESETS = [4, 8, 16, 32, 64, 128] as const;
 
 const isEditableTarget = (target: EventTarget | null) => {
   if (!(target instanceof HTMLElement)) {
@@ -87,6 +89,14 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
       }
     });
 
+    // Watchdog-driven state pushes (auto re-injection after a game reload, or
+    // invalidation when the Flash process is gone).
+    const unsubscribeState = window.electron?.speed?.onStateChanged?.(
+      (status) => {
+        useSpeedStore.getState().syncStatus(status);
+      },
+    );
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (isEditableTarget(event.target)) {
         return;
@@ -101,6 +111,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onSettingsClick }) => {
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       unsubscribe?.();
+      unsubscribeState?.();
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [applyPendingSpeed, resetToOriginalSpeed]);

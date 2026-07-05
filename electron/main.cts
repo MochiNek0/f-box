@@ -86,6 +86,43 @@ if (flashPath) {
   console.warn(`Flash Plugin NOT found for arch: ${process.arch}`);
 }
 
+// ================================================================
+// Experimental: Flash plugin stability switches
+// ----------------------------------------------------------------
+// Chromium command-line switches must be applied before app 'ready', so the
+// flag can't come from the renderer's localStorage — it's persisted in a small
+// JSON file the main process reads at startup. Toggling it in Settings only
+// takes effect after a restart.
+//
+// These target GPU-driver-induced plugin/render crashes by forcing CPU
+// compositing and keeping the GPU process alive across crashes. They trade some
+// rendering performance and don't help on every system — hence "experimental".
+// ================================================================
+const EXPERIMENTAL_FLAGS_PATH = path.join(
+  app.getPath("userData"),
+  "experimental-flags.json",
+);
+
+interface ExperimentalFlags {
+  flashStability: boolean;
+}
+
+function readExperimentalFlags(): ExperimentalFlags {
+  try {
+    const raw = fs.readFileSync(EXPERIMENTAL_FLAGS_PATH, "utf-8");
+    const parsed = JSON.parse(raw);
+    return { flashStability: parsed?.flashStability === true };
+  } catch {
+    return { flashStability: false };
+  }
+}
+
+if (readExperimentalFlags().flashStability) {
+  console.log("[Experimental] Flash stability switches enabled");
+  app.commandLine.appendSwitch("disable-gpu-compositing");
+  app.commandLine.appendSwitch("disable-gpu-process-crash-limit");
+}
+
 // Initialize managers
 let ocrManager: OcrManager | null = null;
 let windowManager: WindowManager | null = null;
@@ -191,7 +228,7 @@ app.on("ready", () => {
   ocrManager = new OcrManager();
   automationManager = new AutomationManager(getWindow, ocrManager);
   updateManager = new UpdateManager();
-  speedManager = new SpeedManager();
+  speedManager = new SpeedManager(getWindow);
 
   // Setup
   windowManager.createWindow();
@@ -210,6 +247,7 @@ app.on("ready", () => {
 
   setupExternalLinkHandler();
   setupAppVersionHandler();
+  setupExperimentalFlagsHandler();
   setupFlashPIDHandler();
   setupOCRHandlers();
   setupAutomationOCRHandler();
@@ -230,6 +268,28 @@ function setupAppVersionHandler(): void {
   ipcMain.handle("get-app-version", () => {
     return app.getVersion();
   });
+}
+
+function setupExperimentalFlagsHandler(): void {
+  ipcMain.handle("get-experimental-flags", () => readExperimentalFlags());
+  ipcMain.handle(
+    "set-experimental-flags",
+    (_event, flags: Partial<ExperimentalFlags>) => {
+      const next: ExperimentalFlags = {
+        ...readExperimentalFlags(),
+        ...flags,
+      };
+      try {
+        fs.writeFileSync(
+          EXPERIMENTAL_FLAGS_PATH,
+          JSON.stringify(next, null, 2),
+        );
+        return { success: true, flags: next };
+      } catch (e: any) {
+        return { success: false, error: e?.message };
+      }
+    },
+  );
 }
 
 // ---------------------------------------------------------------
@@ -347,6 +407,8 @@ app.on("will-quit", () => {
 
   // Remove core IPC handlers
   ipcMain.removeHandler("get-app-version");
+  ipcMain.removeHandler("get-experimental-flags");
+  ipcMain.removeHandler("set-experimental-flags");
   ipcMain.removeHandler("get-flash-pid");
   ipcMain.removeHandler("perform-ocr");
   ipcMain.removeHandler("ocr-get-status");

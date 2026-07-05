@@ -148,8 +148,16 @@ export class OcrManager {
     this.isProcessing = false;
 
     if (req) {
-      if (result.code === 100 || result.code === 200 || result.code === 201) {
-        // 100: success, 101: no text
+      if (
+        result.code === 100 ||
+        result.code === 101 ||
+        result.code === 200 ||
+        result.code === 201
+      ) {
+        // 100/200/201: success. 101: recognized successfully but the region
+        // held no text — a valid empty result, NOT an error. Rejecting it here
+        // broke every "wait until text appears" breakpoint, which by definition
+        // starts on an empty region.
         req.resolve(result);
       } else {
         req.reject(new Error(`OCR Error Code: ${result.code}`));
@@ -387,6 +395,20 @@ export class OcrManager {
         let downloadedSize = 0;
 
         const file = fs.createWriteStream(dest);
+        // Without this, a write failure (disk full, EPERM, locked path) emits
+        // an unhandled 'error' on the stream and crashes the main process, and
+        // the promise never settles.
+        file.on("error", (err) => {
+          file.close();
+          if (fs.existsSync(dest)) {
+            try {
+              fs.unlinkSync(dest);
+            } catch {
+              // best-effort cleanup
+            }
+          }
+          reject(err);
+        });
         response.on("data", (chunk) => {
           downloadedSize += chunk.length;
           if (totalSize > 0 && onProgress) {
@@ -397,8 +419,13 @@ export class OcrManager {
 
         response.pipe(file);
         file.on("finish", () => {
-          file.close();
-          resolve();
+          // Wait for the OS handle to actually close before resolving —
+          // install() opens the same file with AdmZip immediately, and on
+          // Windows a still-open write handle causes intermittent EBUSY.
+          file.close((err) => {
+            if (err) reject(err);
+            else resolve();
+          });
         });
       });
 

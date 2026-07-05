@@ -1,8 +1,11 @@
-import { app, ipcMain } from "electron";
+import { app, ipcMain, BrowserWindow } from "electron";
 import path from "path";
 import fs from "fs";
-import { spawn, execSync, ChildProcess } from "child_process";
+import { spawn, execFile, ChildProcess } from "child_process";
+import { promisify } from "util";
 import { killProcessTree } from "./process-utils.cjs";
+
+const execFileAsync = promisify(execFile);
 
 /**
  * SpeedManager: Professional Speed Gear Orchestrator
@@ -19,6 +22,25 @@ export class SpeedManager {
   // setSpeed coalescing — see setSpeed() for rationale
   private setSpeedDrain: Promise<void> | null = null;
   private pendingSetSpeed: number | null = null;
+  // Flash-process watchdog — see startWatchdog() for rationale
+  private watchdog: NodeJS.Timeout | null = null;
+  private reinjecting = false;
+  // Bumped by stop()/kill() so an async re-injection in flight can detect it
+  // was cancelled and unwind instead of re-enabling speed the user just stopped.
+  private teardownGeneration = 0;
+  // Circuit breaker: timestamps of recent auto re-injections. If injection is
+  // itself what crashes the plugin, blind re-injection would loop forever
+  // (inject → crash → pid gone → re-inject …). Give up after too many in a
+  // short window.
+  private reinjectTimes: number[] = [];
+  private static readonly REINJECT_LIMIT = 3;
+  private static readonly REINJECT_WINDOW_MS = 10_000;
+  // Upper bound on the speed multiplier — above this the plugin tends to crash.
+  private static readonly MAX_SAFE_SPEED = 128;
+  // Debounce for renderer-pushed Flash lifecycle signals (navigate/crash).
+  private recheckTimer: NodeJS.Timeout | null = null;
+
+  constructor(private getWindow?: () => BrowserWindow | null) {}
 
   /**
    * Resolves the absolute path to the native injector executable.
@@ -45,8 +67,15 @@ export class SpeedManager {
    */
   private async isProcess64Bit(pid: number): Promise<boolean> {
     try {
-      const command = `powershell -NoProfile -Command "(Get-Process -Id ${pid}).Path"`;
-      const procPath = execSync(command, { encoding: "utf-8" }).trim();
+      // execFile (async) instead of execSync — spawning PowerShell can take
+      // hundreds of ms (longer under AV), and execSync would freeze the whole
+      // Electron main thread (UI + all IPC) for that entire window.
+      const { stdout } = await execFileAsync(
+        "powershell",
+        ["-NoProfile", "-Command", `(Get-Process -Id ${pid}).Path`],
+        { encoding: "utf-8" },
+      );
+      const procPath = stdout.trim();
 
       if (procPath && fs.existsSync(procPath)) {
         try {
@@ -80,11 +109,49 @@ export class SpeedManager {
     } catch { return null; }
   }
 
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /** Is the given pid still a live process in Electron's metrics? */
+  private isPidAlive(pid: number): boolean {
+    try {
+      return app.getAppMetrics().some((m) => m.pid === pid);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Poll for the Flash plugin process. The user may hit start while the game
+   * is still loading and the Pepper process hasn't spawned yet — rather than
+   * failing instantly, wait a bounded window for it to appear.
+   */
+  private async waitForFlashPid(timeoutMs: number): Promise<number | null> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const pid = this.getFlashPid();
+      if (pid) return pid;
+      if (Date.now() >= deadline) return null;
+      await this.delay(200);
+    }
+  }
+
   /**
    * Injects the speedhack DLL into the target Flash process.
+   *
+   * Robustness layers (each addresses a real cause of "变速时灵时不灵"):
+   *  - Readiness polling: wait for the Pepper process instead of failing if
+   *    the user starts before the game finished loading.
+   *  - Bounded retry with backoff: a single attempt often loses to AV scanning
+   *    the DLL or to a target that just spawned and hasn't settled.
+   *  - Bitness self-correction: try the detected bitness first, then the
+   *    opposite once. A wrong guess makes the injector fail cleanly (a
+   *    cross-bitness DLL can't be LoadLibrary'd), so this recovers from a
+   *    misdetection with no crash risk.
    */
   async start(): Promise<{ success: boolean; error?: string }> {
-    const pid = this.getFlashPid();
+    const pid = await this.waitForFlashPid(5000);
     if (!pid) return { success: false, error: "Flash 进程未就绪" };
 
     // If already injected but PID changed (e.g. crash/reload), reset state
@@ -95,14 +162,47 @@ export class SpeedManager {
 
     if (this.injected) return { success: true };
 
-    const is64 = await this.isProcess64Bit(pid);
-    const injectorExe = this.getInjectorPath(is64);
-    const dllPath = this.getDllPath(is64);
+    const guess = await this.isProcess64Bit(pid);
+    // Detected bitness first (backoff retries for transient failures), then
+    // the opposite bitness once as a misdetection fallback.
+    const candidates: Array<{ is64: boolean; backoffs: number[] }> = [
+      { is64: guess, backoffs: [0, 300, 800, 1500] },
+      { is64: !guess, backoffs: [0] },
+    ];
 
-    if (!fs.existsSync(injectorExe) || !fs.existsSync(dllPath)) {
-      return { success: false, error: "核心组件 (Native) 丢失" };
+    let lastError = "注入失败";
+    for (const { is64, backoffs } of candidates) {
+      const injectorExe = this.getInjectorPath(is64);
+      const dllPath = this.getDllPath(is64);
+      if (!fs.existsSync(injectorExe) || !fs.existsSync(dllPath)) {
+        lastError = "核心组件 (Native) 丢失";
+        continue;
+      }
+
+      for (const wait of backoffs) {
+        if (wait > 0) await this.delay(wait);
+        if (!this.isPidAlive(pid)) {
+          return { success: false, error: "Flash 进程已退出" };
+        }
+        const res = await this.injectOnce(pid, is64, injectorExe, dllPath);
+        if (res.success) return res;
+        lastError = res.error || lastError;
+      }
     }
 
+    return { success: false, error: lastError };
+  }
+
+  /**
+   * A single injection attempt: spawn the injector, wait for the
+   * STATUS|INJECTED handshake, and record state on success.
+   */
+  private injectOnce(
+    pid: number,
+    is64: boolean,
+    injectorExe: string,
+    dllPath: string,
+  ): Promise<{ success: boolean; error?: string }> {
     return new Promise((resolve) => {
       try {
         // Kill previous injector process if still running
@@ -129,6 +229,7 @@ export class SpeedManager {
                 this.injected = true;
                 this.flashPid = pid;
                 this.is64Bit = is64;
+                this.startWatchdog();
                 if (!resolved) { resolved = true; resolve({ success: true }); }
               }
             } else if (trimmed.includes("STATUS|ERROR")) {
@@ -196,6 +297,13 @@ export class SpeedManager {
   async setSpeed(multiplier: number): Promise<{ success: boolean; error?: string }> {
     if (!this.injected || !this.flashPid || !this.dataAddr) {
       return { success: false, error: "尚未开启变速" };
+    }
+
+    // Hard safety cap: extreme multipliers destabilize the Flash timer logic
+    // and crash the plugin. The renderer already clamps, but enforce it here
+    // too so no caller (shortcut, future code) can feed an unsafe value.
+    if (multiplier > SpeedManager.MAX_SAFE_SPEED) {
+      multiplier = SpeedManager.MAX_SAFE_SPEED;
     }
 
     if (this.setSpeedDrain) {
@@ -343,6 +451,10 @@ export class SpeedManager {
    * "simplify" this into a single setSpeed call.
    */
   async stop(): Promise<{ success: boolean }> {
+    // Stop watching first so a teardown isn't mistaken for a crash and
+    // re-injected while we're tearing down.
+    this.stopWatchdog();
+    this.teardownGeneration++;
     if (this.injected && this.flashPid && this.dataAddr) {
       if (this.setSpeedDrain) {
         // Drain is active — queue 1.0 as the final value and wait.
@@ -384,7 +496,26 @@ export class SpeedManager {
     ipcMain.handle("speed-stop", async () => this.stop());
     ipcMain.handle("speed-set", async (_event, multiplier: number) => this.setSpeed(multiplier));
     ipcMain.handle("speed-status", async () => this.getStatus());
+    ipcMain.on("speed-flash-changed", this.handleFlashChanged);
   }
+
+  /**
+   * Renderer signal that the Flash plugin may have changed (game navigated,
+   * reloaded, or the plugin crashed). Triggers an immediate re-check instead
+   * of waiting for the next watchdog poll, cutting the recovery gap.
+   *
+   * Debounced: navigation fires a burst of events, and metrics can lag the
+   * actual process teardown by a moment — the short delay coalesces the burst
+   * and lets the new process register before we look.
+   */
+  private handleFlashChanged = (): void => {
+    if (!this.injected) return;
+    if (this.recheckTimer) clearTimeout(this.recheckTimer);
+    this.recheckTimer = setTimeout(() => {
+      this.recheckTimer = null;
+      void this.watchdogTick();
+    }, 400);
+  };
 
   /**
    * Clean up the injector process (timeout, listeners, process).
@@ -414,10 +545,123 @@ export class SpeedManager {
    * Immediate cleanup upon application core termination.
    */
   kill(): void {
+    this.stopWatchdog();
+    this.teardownGeneration++;
     this.cleanupInjector();
     this.injected = false;
     this.flashPid = null;
     this.dataAddr = null;
+  }
+
+  /**
+   * Flash-process watchdog.
+   *
+   * The injected PID/DATA_ADDR are captured once at injection time. When the
+   * Flash plugin process dies and respawns (game reload, in-page navigation,
+   * plugin crash), it gets a BRAND NEW pid, so the captured dataAddr becomes a
+   * dangling address in a dead process. Without this watchdog, `injected`
+   * stays true, setSpeed keeps writing into nothing, and the UI still claims
+   * "变速中" — the speed silently stops working until a manual stop+start.
+   *
+   * This polls app metrics; when our Flash pid disappears we auto re-inject
+   * into the fresh process and replay the last speed, or — if no Flash process
+   * remains — reset to inactive and tell the renderer so the UI stays honest.
+   *
+   * NOTE: this RECOVERS from crashes/reloads. It does not prevent them.
+   */
+  private startWatchdog(): void {
+    this.stopWatchdog();
+    this.watchdog = setInterval(() => {
+      void this.watchdogTick();
+    }, 1500);
+  }
+
+  private stopWatchdog(): void {
+    if (this.watchdog) {
+      clearInterval(this.watchdog);
+      this.watchdog = null;
+    }
+    if (this.recheckTimer) {
+      clearTimeout(this.recheckTimer);
+      this.recheckTimer = null;
+    }
+  }
+
+  private async watchdogTick(): Promise<void> {
+    if (!this.injected || !this.flashPid) return;
+    // Don't race an in-flight write or an ongoing re-injection.
+    if (this.reinjecting || this.setSpeedDrain) return;
+
+    if (this.isPidAlive(this.flashPid)) return;
+
+    // Our Flash process is gone. Tear down the stale injection state.
+    this.reinjecting = true;
+    const gen = this.teardownGeneration;
+    const desiredSpeed = this.currentSpeed;
+    this.cleanupInjector();
+    this.injected = false;
+    this.dataAddr = null;
+    this.flashPid = null;
+
+    try {
+      // Circuit breaker: if we've re-injected repeatedly in a short window,
+      // injection is likely destabilizing the plugin. Stop trying and go
+      // inactive rather than driving a crash loop.
+      const now = Date.now();
+      this.reinjectTimes = this.reinjectTimes.filter(
+        (t) => now - t < SpeedManager.REINJECT_WINDOW_MS,
+      );
+      this.reinjectTimes.push(now);
+      if (this.reinjectTimes.length > SpeedManager.REINJECT_LIMIT) {
+        console.warn(
+          "[Speed] Re-injection loop detected — disabling watchdog to avoid a crash loop.",
+        );
+        this.stopWatchdog();
+        this.reinjectTimes = [];
+        this.currentSpeed = 1.0;
+        this.notifyRenderer();
+        return;
+      }
+
+      // start() polls up to 5s for a fresh Flash process, so a reload's
+      // respawn gap won't be mistaken for "gone".
+      const res = await this.start();
+      // If stop()/kill() ran while we were re-injecting, honor it: undo the
+      // fresh injection start() just set up rather than re-enabling speed.
+      if (gen !== this.teardownGeneration) {
+        this.stopWatchdog();
+        this.cleanupInjector();
+        this.injected = false;
+        this.dataAddr = null;
+        this.flashPid = null;
+        this.currentSpeed = 1.0;
+        return;
+      }
+      if (res.success) {
+        if (desiredSpeed !== 1.0) await this.setSpeed(desiredSpeed);
+      } else {
+        // No Flash process came back (e.g. user returned to the library).
+        // Go inactive and stop polling — a fresh manual start() restarts it.
+        this.currentSpeed = 1.0;
+        this.stopWatchdog();
+      }
+      this.notifyRenderer();
+    } finally {
+      this.reinjecting = false;
+    }
+  }
+
+  /**
+   * Push the current speed status to the renderer so the UI reflects
+   * watchdog-driven state changes (auto re-injection / invalidation) that the
+   * renderer didn't initiate.
+   */
+  private notifyRenderer(): void {
+    try {
+      this.getWindow?.()?.webContents.send("speed-state", this.getStatus());
+    } catch {
+      // window may be gone during shutdown
+    }
   }
 
   /**
@@ -428,5 +672,6 @@ export class SpeedManager {
     ipcMain.removeHandler("speed-stop");
     ipcMain.removeHandler("speed-set");
     ipcMain.removeHandler("speed-status");
+    ipcMain.removeListener("speed-flash-changed", this.handleFlashChanged);
   }
 }

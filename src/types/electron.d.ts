@@ -126,6 +126,14 @@ export interface SpeedAPI {
     pid: number | null;
   }>;
   onShortcut: (callback: (key: "F1" | "F2") => void) => () => void;
+  onStateChanged: (
+    callback: (status: {
+      active: boolean;
+      speed: number;
+      pid: number | null;
+    }) => void,
+  ) => () => void;
+  notifyFlashChanged: () => void;
 }
 
 export interface IElectronAPI {
@@ -136,7 +144,11 @@ export interface IElectronAPI {
   updateBossKey: (key: string) => void;
   openExternal: (url: string) => void;
   getAppVersion: () => Promise<string>;
-  getFlashPid: () => Promise<number>;
+  getExperimentalFlags: () => Promise<{ flashStability: boolean }>;
+  setExperimentalFlags: (flags: {
+    flashStability?: boolean;
+  }) => Promise<{ success: boolean; flags?: { flashStability: boolean }; error?: string }>;
+  getFlashPid: () => Promise<number | null>;
   getKeymapConfig: () => Promise<{
     enabled: boolean;
     mappings: Array<{ source: string; target: string }>;
