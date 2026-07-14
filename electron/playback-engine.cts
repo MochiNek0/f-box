@@ -74,6 +74,16 @@ const VK_TO_KEYCODE: Record<number, string> = {
   0x28: "Down",
   0x2d: "Insert",
   0x2e: "Delete",
+  // Left/right-specific modifier VKs. WH_KEYBOARD_LL (what the AHK recorder's
+  // InputHook uses) always reports these (0xA0-0xA5), never the generic
+  // 0x10-0x12 — without them every recorded Shift/Ctrl/Alt falls back to an
+  // AHK key name ("LShift") that Electron can't parse.
+  0xa0: "Shift",
+  0xa1: "Shift",
+  0xa2: "Control",
+  0xa3: "Control",
+  0xa4: "Alt",
+  0xa5: "Alt",
 };
 
 // Digits and letters are contiguous.
@@ -86,11 +96,26 @@ for (let vk = 0x41; vk <= 0x5a; vk++) {
 for (let n = 1; n <= 12; n++) {
   VK_TO_KEYCODE[0x6f + n] = `F${n}`; // 0x70..0x7B -> F1..F12
 }
+// Numpad (Electron accelerator names).
+for (let n = 0; n <= 9; n++) {
+  VK_TO_KEYCODE[0x60 + n] = `num${n}`;
+}
+VK_TO_KEYCODE[0x6a] = "nummult";
+VK_TO_KEYCODE[0x6b] = "numadd";
+VK_TO_KEYCODE[0x6d] = "numsub";
+VK_TO_KEYCODE[0x6e] = "numdec";
+VK_TO_KEYCODE[0x6f] = "numdiv";
 
 const MODIFIER_VK: Record<number, "shift" | "control" | "alt"> = {
   0x10: "shift",
   0x11: "control",
   0x12: "alt",
+  0xa0: "shift",
+  0xa1: "shift",
+  0xa2: "control",
+  0xa3: "control",
+  0xa4: "alt",
+  0xa5: "alt",
 };
 
 // Single characters AHK treats literally; a bare char keyCode is fine here.
@@ -101,6 +126,10 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export class PlaybackEngine {
   private shouldStop = false;
   private heldModifiers = new Set<"shift" | "control" | "alt">();
+  // Every keyCode with a keyDown sent but no matching keyUp yet, so a stop
+  // mid-hold (e.g. a movement key) can release it instead of leaving the
+  // guest with a stuck key.
+  private heldKeys = new Set<string>();
 
   constructor(
     private guest: WebContents,
@@ -142,9 +171,15 @@ export class PlaybackEngine {
     }
     try {
       this.guest.sendInputEvent(event);
-    } catch {
-      // A destroyed/navigating guest can throw mid-flight; end playback.
-      this.shouldStop = true;
+    } catch (e) {
+      if (this.guest.isDestroyed()) {
+        // Guest destroyed mid-flight; end playback.
+        this.shouldStop = true;
+      } else {
+        // Malformed event (e.g. a keyCode Electron can't parse) — skip this
+        // event rather than silently killing the whole run.
+        console.error("sendInputEvent failed:", e);
+      }
     }
   }
 
@@ -201,6 +236,7 @@ export class PlaybackEngine {
         if (typeof evt.vk === "number" && MODIFIER_VK[evt.vk]) {
           this.heldModifiers.add(MODIFIER_VK[evt.vk]);
         }
+        this.heldKeys.add(keyCode);
         this.send({ type: "keyDown", keyCode, modifiers: this.modifiers() });
         if (isPrintable(keyCode)) {
           this.send({ type: "char", keyCode, modifiers: this.modifiers() });
@@ -210,6 +246,7 @@ export class PlaybackEngine {
       case "keyup": {
         const keyCode = this.keyCodeFor(evt);
         if (!keyCode) break;
+        this.heldKeys.delete(keyCode);
         this.send({ type: "keyUp", keyCode, modifiers: this.modifiers() });
         if (typeof evt.vk === "number" && MODIFIER_VK[evt.vk]) {
           this.heldModifiers.delete(MODIFIER_VK[evt.vk]);
@@ -282,17 +319,18 @@ export class PlaybackEngine {
         await this.sleepUntil(this.now() + 500);
       }
     } finally {
-      // Release any modifiers still logically held so we never leave the guest
-      // stuck with e.g. Shift down.
-      for (const mod of this.heldModifiers) {
-        const vk = mod === "shift" ? 0x10 : mod === "control" ? 0x11 : 0x12;
-        const keyCode = VK_TO_KEYCODE[vk];
-        try {
-          this.guest.sendInputEvent({ type: "keyUp", keyCode } as any);
-        } catch {
-          // guest gone; nothing to release
+      // Release any keys still logically held (modifiers AND regular keys like
+      // a held movement key) so we never leave the guest stuck with a key down.
+      if (!this.guest.isDestroyed()) {
+        for (const keyCode of this.heldKeys) {
+          try {
+            this.guest.sendInputEvent({ type: "keyUp", keyCode } as any);
+          } catch {
+            // guest gone; nothing to release
+          }
         }
       }
+      this.heldKeys.clear();
       this.heldModifiers.clear();
       this.cb.onStatus(
         `STATUS|STOPPED|${this.shouldStop ? loopCount : loopCount - 1}`,

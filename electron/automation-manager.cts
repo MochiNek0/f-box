@@ -79,6 +79,11 @@ export class AutomationManager {
   private stopHotkeyRegistered = false;
   // Background (isolated) playback state
   private playbackEngine: PlaybackEngine | null = null;
+  // Bumped whenever a new play/record session starts. A stopped engine's
+  // onDone lands asynchronously (up to ~25ms later); if a new session has
+  // already started by then, its teardown must become a no-op instead of
+  // clobbering the new session's state (engine ref, F10, script path).
+  private sessionSeq = 0;
   private recordGeometry: GameGeometry | null = null;
   private activeTarget: AutomationTarget | null = null;
   private breakpointResolvers = new Map<
@@ -505,6 +510,8 @@ export class AutomationManager {
       }
 
       const args = [...runtime.args, "record", scriptPath];
+      // New session: invalidate any replaced engine's pending teardown.
+      this.sessionSeq++;
       this.automationProcess = spawn(runtime.exe, args, {
         windowsHide: true,
         stdio: ["ignore", "pipe", "pipe"],
@@ -671,6 +678,8 @@ export class AutomationManager {
 
       this.currentPlayingScriptPath = scriptPath;
       this.activeHotkeySlot = hotkeySlot;
+      // New session: invalidate any replaced engine's pending teardown.
+      this.sessionSeq++;
       const args = [
         ...runtime.args,
         "play",
@@ -713,19 +722,28 @@ export class AutomationManager {
   ): void {
     this.currentPlayingScriptPath = scriptPath;
     this.activeHotkeySlot = hotkeySlot;
+    // Callbacks from this engine are only honored while it is still the
+    // current session — a replaced engine winding down must not emit status
+    // or tear down its successor (mirrors the activeProcess guard on the
+    // legacy stdout path).
+    const session = ++this.sessionSeq;
 
     const engine = new PlaybackEngine(guest, events, geometry, maxLoops, {
-      onStatus: (line) => this.handleEngineStatus(line),
+      onStatus: (line) => {
+        if (session === this.sessionSeq) this.handleEngineStatus(line);
+      },
       onBreakpoint: (evt, eventIndex) =>
-        this.requestPlaybackOCR(evt, eventIndex),
-      onDone: () => this.teardownAfterPlayback(),
+        session === this.sessionSeq
+          ? this.requestPlaybackOCR(evt, eventIndex)
+          : Promise.resolve("stop" as const),
+      onDone: () => this.teardownAfterPlayback(session),
     });
     this.playbackEngine = engine;
     this.registerStopHotkey();
 
     engine.run().catch((e) => {
       console.error("PlaybackEngine error:", e);
-      this.teardownAfterPlayback();
+      this.teardownAfterPlayback(session);
     });
   }
 
@@ -768,8 +786,10 @@ export class AutomationManager {
   }
 
   // Shared post-playback cleanup for the engine path (natural finish, stop, or
-  // error). Idempotent — safe to call more than once.
-  private teardownAfterPlayback(): void {
+  // error). Idempotent — safe to call more than once. No-op when a newer
+  // session has started since (stale engine's late onDone).
+  private teardownAfterPlayback(session: number): void {
+    if (session !== this.sessionSeq) return;
     this.playbackEngine = null;
     this.currentPlayingScriptPath = null;
     this.activeHotkeySlot = null;
