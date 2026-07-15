@@ -46,10 +46,6 @@
         "to": "keymap.exe"
       },
       {
-        "from": "public/assets/automation.exe",
-        "to": "automation.exe"
-      },
-      {
         "from": "public/assets/speedhack32.dll",
         "to": "speedhack32.dll"
       },
@@ -68,7 +64,6 @@
     ],
     "asarUnpack": [
       "keymap.exe",
-      "automation.exe",
       "speedhack32.dll",
       "speedhack64.dll",
       "injector32.exe",
@@ -94,10 +89,6 @@
         {
           "from": "public/assets/keymap.exe",
           "to": "keymap.exe"
-        },
-        {
-          "from": "public/assets/automation.exe",
-          "to": "automation.exe"
         },
         {
           "from": "public/assets/speedhack32.dll",

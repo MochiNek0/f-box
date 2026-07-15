@@ -25,6 +25,7 @@ import { IconButton } from "../../../common/IconButton";
 import { NumberInput } from "../../../common/NumberInput";
 import { useTabStore } from "../../../../store/useTabStore";
 import { getGeometryForTab } from "../../../../store/gameViewRegistry";
+import { useRecordingStore } from "../../../../store/useRecordingStore";
 
 const isWindows = () => window.electron.getPlatform() === "win32";
 
@@ -71,7 +72,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
               此功能仅支持 Windows
             </h3>
             <p className="text-sm text-zinc-500 max-w-md">
-              自动化录制/回放功能依赖 AutoHotkey，目前仅在 Windows 平台上可用。
+              自动化录制/回放功能目前仅在 Windows 平台上可用。
             </p>
           </div>
         </section>
@@ -81,7 +82,8 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
 
   const [scripts, setScripts] = useState<string[]>([]);
   const [recordName, setRecordName] = useState("");
-  const [isRecording, setIsRecording] = useState(false);
+  // Recording state lives in the renderer-side recording store now.
+  const isRecording = useRecordingStore((s) => s.recordingTabId !== null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playingScript, setPlayingScript] = useState<string | null>(null);
   const [expandedScript, setExpandedScript] = useState<string | null>(null);
@@ -115,14 +117,6 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
         if (parts[0] === "STATUS") {
           const action = parts[1];
           switch (action) {
-            case "RECORDING":
-              setStatusMessage("🔴 正在录制... 按 F10 停止");
-              break;
-            case "RECORD_DONE":
-              setStatusMessage("✅ 录制完成");
-              setIsRecording(false);
-              refreshScripts();
-              break;
             case "PLAYING":
               setStatusMessage("▶️ 正在播放...");
               break;
@@ -168,10 +162,6 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
               break;
             }
             case "PROCESS_EXIT":
-              if (isRecording) {
-                setIsRecording(false);
-                refreshScripts();
-              }
               if (isPlaying) {
                 setIsPlaying(false);
                 setPlayingScript(null);
@@ -198,7 +188,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
       detachStatus();
       window.electron.offOcrInstallProgress();
     };
-  }, [isRecording, isPlaying, refreshScripts]);
+  }, [isPlaying]);
 
   // Load scripts and OCR status on mount
   useEffect(() => {
@@ -559,7 +549,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
                     >
                       {scriptIsolation
                         ? "后台播放：回放时不占用你的真实鼠标键盘。"
-                        : "旧格式脚本：回放会占用真实鼠标键盘。重新录制即可支持后台播放。"}
+                        : "旧格式脚本：已无法播放，请重新录制以支持后台播放。"}
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">

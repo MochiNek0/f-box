@@ -1,18 +1,21 @@
 // =====================================================================
 // Coordinate geometry for background (isolated) automation playback.
 //
-// Recording captures SCREEN-ABSOLUTE physical pixels (WH_MOUSE_LL). To make
-// playback window-position/size independent, mouse coordinates are stored as
-// a NORMALIZED fraction (nx, ny) of the on-screen game surface, then re-mapped
-// to guest-webview coordinates at play time. All coordinate math lives in the
-// main process (record post-processing + PlaybackEngine), so nothing is shared
-// across the main/renderer build boundary — the renderer only supplies a
-// GameGeometry snapshot.
+// Mouse coordinates are stored as a NORMALIZED fraction (nx, ny) of the
+// on-screen game surface, then re-mapped to guest-webview coordinates at play
+// time (window-position/size independent). The renderer records nx/ny
+// directly (overlay-relative) and builds the meta sentinel itself; this
+// module holds the play-time mapping plus the shared schema definitions.
 // =====================================================================
 
 // Bumped when the stored script schema changes in a way that affects
-// isolation playback. v2 = adds the `meta` sentinel + per-mouse-event nx/ny.
-export const SCRIPT_VERSION = 2;
+// isolation playback.
+// v2 = adds the `meta` sentinel + per-mouse-event nx/ny (AHK recorder,
+//      post-processed from screen-absolute coordinates).
+// v3 = recorded by the renderer overlay: native nx/ny, `key` holds an
+//      Electron keyCode (no vk/sc). Must stay in sync with the renderer's
+//      SCRIPT_VERSION in src/store/useRecordingStore.ts.
+export const SCRIPT_VERSION = 3;
 
 export interface GameGeometry {
   // Guest <webview> WebContents id (webContents.fromId).
@@ -31,9 +34,9 @@ export interface GameGeometry {
   screenH: number;
 }
 
-// The sentinel event stored at index 0 of a v2 script. `type:"meta"` is
-// ignored by the legacy AHK loader (no matching branch) and skipped by the TS
-// play loop, so it is safe to carry inside the plain events array.
+// The sentinel event stored at index 0 of a v2+ script. `type:"meta"` is
+// skipped by the play loop, so it is safe to carry inside the plain events
+// array. The renderer recorder builds an identically-shaped object.
 export interface MetaEvent {
   t: 0;
   type: "meta";
@@ -54,17 +57,6 @@ export function scriptSupportsIsolation(events: any[]): boolean {
     typeof head.version === "number" &&
     head.version >= 2
   );
-}
-
-// Screen-absolute physical px -> normalized fraction of the game surface.
-export function screenToNormalized(
-  sx: number,
-  sy: number,
-  geo: GameGeometry,
-): { nx: number; ny: number } {
-  const w = geo.screenW || 1;
-  const h = geo.screenH || 1;
-  return { nx: (sx - geo.screenX) / w, ny: (sy - geo.screenY) / h };
 }
 
 // Normalized fraction -> guest-webview input coordinates (what

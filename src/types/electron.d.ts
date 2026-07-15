@@ -1,6 +1,7 @@
 export interface AutomationEvent {
   t: number;
   type:
+    | "meta"
     | "keydown"
     | "keyup"
     | "mousedown"
@@ -8,18 +9,46 @@ export interface AutomationEvent {
     | "mousemove"
     | "mousewheel"
     | "breakpoint";
+  // v3 scripts: Electron keyCode (mapped from DOM e.code at record time).
   key?: string;
   button?: string;
   x?: number;
   y?: number;
-  // Normalized (0..1) coordinates of the game surface for v2 isolation scripts.
+  // Normalized (0..1) coordinates of the game surface for v2+ isolation scripts.
   nx?: number;
   ny?: number;
   w?: number;
   h?: number;
   text?: string;
   t_trigger?: number;
+  // Meta sentinel fields (type === "meta", stored at index 0).
+  version?: number;
+  geometry?: GameGeometry;
 }
+
+// Input event forwarded to main for live injection into the game webview
+// during recording (webContents.sendInputEvent shapes).
+export type InjectedInputEvent =
+  | { type: "mouseMove"; x: number; y: number }
+  | {
+      type: "mouseDown" | "mouseUp";
+      x: number;
+      y: number;
+      button: "left" | "middle" | "right";
+      clickCount: number;
+    }
+  | {
+      type: "mouseWheel";
+      x: number;
+      y: number;
+      deltaY: number;
+      canScroll: boolean;
+    }
+  | {
+      type: "keyDown" | "keyUp" | "char";
+      keyCode: string;
+      modifiers: string[];
+    };
 
 // Game surface geometry snapshot passed to record/play so recorded
 // screen-absolute coordinates can be normalized and re-mapped for background
@@ -74,11 +103,31 @@ export interface AutomationHotkeySlots {
 }
 
 export interface AutomationAPI {
-  startRecord: (
-    name: string,
-    target?: AutomationTarget | null,
-  ) => Promise<{ success: boolean; error?: string }>;
-  stopRecord: () => Promise<{ success: boolean }>;
+  // Fire-and-forget: inject a recorded input event into the game webview.
+  forwardInput: (payload: {
+    webContentsId: number;
+    event: InjectedInputEvent;
+  }) => void;
+  // Notify main that renderer-side recording started/ended (guards the
+  // F3-F5 hotkey slots and stops active playback on record start).
+  // webContentsId (start only) lets main attach keyboard capture to the guest.
+  setRecordingState: (recording: boolean, webContentsId?: number) => void;
+  // Physical keys mirrored from the focused guest during recording; returns
+  // a detach function.
+  onRecordKey: (
+    callback: (data: {
+      type: "keyDown" | "keyUp";
+      code: string;
+      key: string;
+      isAutoRepeat: boolean;
+    }) => void,
+  ) => () => void;
+  // F9/F10 record-control hotkeys during recording; returns a detach function.
+  onRecordHotkey: (callback: (key: "F9" | "F10") => void) => () => void;
+  // Main asks the renderer to focus a game <webview> (by guest webContentsId)
+  // at playback start so injected mouse clicks reach Flash; returns a detach
+  // function.
+  onFocusGuest: (callback: (webContentsId: number) => void) => () => void;
   startPlay: (
     name: string,
     target?: AutomationTarget | null,
@@ -109,18 +158,6 @@ export interface AutomationAPI {
   ) => Promise<{ success: boolean; error?: string }>;
   onStatus: (callback: (status: string) => void) => () => void;
   offStatus: () => void;
-  onBreakpointTriggered: (
-    callback: (payload: { tTrigger: number }) => void,
-  ) => void;
-  offBreakpointTriggered: () => void;
-  breakpointResume: (data: {
-    x: number;
-    y: number;
-    w: number;
-    h: number;
-    text: string;
-    tTrigger?: number;
-  }) => Promise<{ success: boolean; error?: string }>;
   getScriptEvents: (
     name: string,
   ) => Promise<{

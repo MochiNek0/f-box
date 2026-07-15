@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { TitleBar } from "./components/app/TitleBar";
 import { TabBar } from "./components/app/TabBar";
 import { GameLibrary } from "./components/app/GameLibrary";
@@ -10,16 +10,16 @@ import { OCRSelectionOverlay } from "./components/app/OCRSelectionOverlay";
 import { UpdateNotifier } from "./components/app/UpdateNotifier";
 import { useTabStore } from "./store/useTabStore";
 import { useSettingsStore } from "./store/useSettingsStore";
+import { useRecordingStore } from "./store/useRecordingStore";
 import { preprocessImage } from "./utils/imageProcess";
 
 const App: React.FC = () => {
   const [hasFlash, setHasFlash] = useState<boolean | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isRecorderOpen, setIsRecorderOpen] = useState(false);
-  const [showOCRSelection, setShowOCRSelection] = useState(false);
   const [initialRecordName, setInitialRecordName] = useState("");
-  // Store t_trigger (F9 press time) from BREAKPOINT_REQ to pass back on resume
-  const pendingTTrigger = useRef<number>(0);
+  // F9 during recording pauses the clock and requests an OCR region selection.
+  const breakpointPending = useRecordingStore((s) => s.breakpointPending);
 
   const handleOpenRecorder = (name: string) => {
     setInitialRecordName(name);
@@ -54,18 +54,6 @@ const App: React.FC = () => {
       } else {
         console.warn("Electron bridge not found");
         setHasFlash(false);
-      }
-
-      // Breakpoint Trigger Listener
-      if (
-        window.electron &&
-        window.electron.automation &&
-        window.electron.automation.onBreakpointTriggered
-      ) {
-        window.electron.automation.onBreakpointTriggered(({ tTrigger }) => {
-          pendingTTrigger.current = tTrigger;
-          setShowOCRSelection(true);
-        });
       }
 
       // OCR Request Listener for Playback
@@ -170,13 +158,6 @@ const App: React.FC = () => {
       if (
         window.electron &&
         window.electron.automation &&
-        window.electron.automation.offBreakpointTriggered
-      ) {
-        window.electron.automation.offBreakpointTriggered();
-      }
-      if (
-        window.electron &&
-        window.electron.automation &&
         window.electron.automation.offOCRRequest
       ) {
         window.electron.automation.offOCRRequest();
@@ -236,29 +217,13 @@ const App: React.FC = () => {
         />
       )}
 
-      {/* OCR Region Selection */}
-      {showOCRSelection && (
+      {/* OCR Region Selection (F9 breakpoint during recording) */}
+      {breakpointPending && (
         <OCRSelectionOverlay
-          onComplete={async (data) => {
-            await window.electron.automation.breakpointResume({
-              ...data,
-              tTrigger: pendingTTrigger.current,
-            });
-            pendingTTrigger.current = 0;
-            setShowOCRSelection(false);
-          }}
-          onCancel={async () => {
-            await window.electron.automation.breakpointResume({
-              x: 0,
-              y: 0,
-              w: 0,
-              h: 0,
-              text: "",
-              tTrigger: 0,
-            });
-            pendingTTrigger.current = 0;
-            setShowOCRSelection(false);
-          }}
+          onComplete={(data) =>
+            useRecordingStore.getState().completeBreakpoint(data)
+          }
+          onCancel={() => useRecordingStore.getState().cancelBreakpoint()}
         />
       )}
 

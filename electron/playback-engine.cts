@@ -1,12 +1,12 @@
 // =====================================================================
 // PlaybackEngine — background (isolated) automation playback.
 //
-// Replaces the AHK RunPlay loop for v2 scripts: reads recorded events and
-// injects them into the game <webview> via webContents.sendInputEvent, which
-// routes through Chromium's input pipeline (the path PPAPI Flash listens on)
-// WITHOUT touching the physical mouse/keyboard. Timing, loop/stop handling and
-// breakpoints mirror automation.ahk:234-396; status strings are byte-identical
-// so the renderer parser is unchanged.
+// Reads recorded events and injects them into the game <webview> via
+// webContents.sendInputEvent, which routes through Chromium's input pipeline
+// (the path PPAPI Flash listens on) WITHOUT touching the physical
+// mouse/keyboard. Timing, loop/stop handling and breakpoints preserve the
+// original AHK player's semantics; status strings are byte-identical so the
+// renderer parser is unchanged.
 // =====================================================================
 import { WebContents } from "electron";
 import {
@@ -118,6 +118,14 @@ const MODIFIER_VK: Record<number, "shift" | "control" | "alt"> = {
   0xa5: "alt",
 };
 
+// v3 scripts carry no vk — modifiers are identified by their Electron
+// keyCode instead.
+const MODIFIER_KEYCODE: Record<string, "shift" | "control" | "alt"> = {
+  Shift: "shift",
+  Control: "control",
+  Alt: "alt",
+};
+
 // Single characters AHK treats literally; a bare char keyCode is fine here.
 const isPrintable = (keyCode: string) => keyCode.length === 1;
 
@@ -197,7 +205,18 @@ export class PlaybackEngine {
     return evt.key ?? "";
   }
 
-  private executeEvent(evt: PlaybackEvent): void {
+  // Identify a modifier by vk (v2 scripts) or by keyCode (v3 scripts).
+  private modifierFor(
+    evt: PlaybackEvent,
+    keyCode: string,
+  ): "shift" | "control" | "alt" | undefined {
+    if (typeof evt.vk === "number" && MODIFIER_VK[evt.vk]) {
+      return MODIFIER_VK[evt.vk];
+    }
+    return MODIFIER_KEYCODE[keyCode];
+  }
+
+  private async executeEvent(evt: PlaybackEvent): Promise<void> {
     switch (evt.type) {
       case "mousemove": {
         const { x, y } = this.mapCoords(evt);
@@ -213,8 +232,17 @@ export class PlaybackEngine {
             : evt.button === "middle"
               ? "middle"
               : "left";
-        // Hover first, mirroring AHK's SetCursorPos before Click.
+        // [DEBUG coord] playback-time injection
+        console.log(
+          `[PLAY] type=${evt.type} nx=${evt.nx} ny=${evt.ny} -> x=${x} y=${y} renderW=${this.geometry.renderWidth} renderH=${this.geometry.renderHeight}`,
+        );
+        // Hover first, mirroring AHK's SetCursorPos before Click. In recording,
+        // the move and the down arrive as SEPARATE IPC messages (separate event
+        // loop ticks), giving PPAPI Flash a beat to register the hover. Injecting
+        // both in the same synchronous tick can make Flash drop the click, so
+        // insert a small delay between them to reproduce the recording timing.
         this.send({ type: "mouseMove", x, y });
+        await delay(16);
         this.send({
           type: evt.type === "mousedown" ? "mouseDown" : "mouseUp",
           x,
@@ -233,8 +261,9 @@ export class PlaybackEngine {
       case "keydown": {
         const keyCode = this.keyCodeFor(evt);
         if (!keyCode) break;
-        if (typeof evt.vk === "number" && MODIFIER_VK[evt.vk]) {
-          this.heldModifiers.add(MODIFIER_VK[evt.vk]);
+        const mod = this.modifierFor(evt, keyCode);
+        if (mod) {
+          this.heldModifiers.add(mod);
         }
         this.heldKeys.add(keyCode);
         this.send({ type: "keyDown", keyCode, modifiers: this.modifiers() });
@@ -248,8 +277,9 @@ export class PlaybackEngine {
         if (!keyCode) break;
         this.heldKeys.delete(keyCode);
         this.send({ type: "keyUp", keyCode, modifiers: this.modifiers() });
-        if (typeof evt.vk === "number" && MODIFIER_VK[evt.vk]) {
-          this.heldModifiers.delete(MODIFIER_VK[evt.vk]);
+        const mod = this.modifierFor(evt, keyCode);
+        if (mod) {
+          this.heldModifiers.delete(mod);
         }
         break;
       }
@@ -303,14 +333,14 @@ export class PlaybackEngine {
               break;
             }
             // Rebase the timeline so subsequent events stay correctly timed
-            // after the (variable-length) OCR wait — matches automation.ahk:311.
+            // after the (variable-length) OCR wait.
             playStart += this.now() - (playStart + evt.t);
             continue;
           }
 
           await this.sleepUntil(playStart + evt.t);
           if (this.shouldStop) break;
-          this.executeEvent(evt);
+          await this.executeEvent(evt);
         }
 
         if (this.shouldStop) break;

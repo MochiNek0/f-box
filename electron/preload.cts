@@ -46,9 +46,55 @@ contextBridge.exposeInMainWorld("electron", {
 
   // Automation API
   automation: {
-    startRecord: (name: string, target?: any) =>
-      ipcRenderer.invoke("automation-start-record", name, target ?? null),
-    stopRecord: () => ipcRenderer.invoke("automation-stop-record"),
+    // Live input forwarding from the recording overlay (fire-and-forget).
+    forwardInput: (payload: { webContentsId: number; event: any }) =>
+      ipcRenderer.send("automation-forward-input", payload),
+    // Renderer-side recording started/ended. webContentsId (start only) lets
+    // main attach the keyboard capture to the game guest.
+    setRecordingState: (recording: boolean, webContentsId?: number) =>
+      ipcRenderer.send("automation-recording-state", {
+        recording,
+        webContentsId,
+      }),
+    // Physical keys mirrored from the focused guest during recording.
+    onRecordKey: (
+      callback: (data: {
+        type: "keyDown" | "keyUp";
+        code: string;
+        key: string;
+        isAutoRepeat: boolean;
+      }) => void,
+    ) => {
+      const listener = (_event: Electron.IpcRendererEvent, data: any) => {
+        callback(data);
+      };
+      ipcRenderer.on("automation-record-key", listener);
+      return () => {
+        ipcRenderer.removeListener("automation-record-key", listener);
+      };
+    },
+    // F9/F10 record-control hotkeys (global shortcut or guest intercept).
+    onRecordHotkey: (callback: (key: "F9" | "F10") => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, key: any) => {
+        callback(key);
+      };
+      ipcRenderer.on("automation-record-hotkey", listener);
+      return () => {
+        ipcRenderer.removeListener("automation-record-hotkey", listener);
+      };
+    },
+    // Main asks the renderer to focus a game <webview> at playback start, so
+    // injected mouse clicks reach PPAPI Flash (a main-side guest focus() is
+    // not sufficient).
+    onFocusGuest: (callback: (webContentsId: number) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, id: any) => {
+        callback(id);
+      };
+      ipcRenderer.on("automation-focus-guest", listener);
+      return () => {
+        ipcRenderer.removeListener("automation-focus-guest", listener);
+      };
+    },
     startPlay: (name: string, target?: any) =>
       ipcRenderer.invoke("automation-start-play", name, target ?? null),
     stopPlay: () => ipcRenderer.invoke("automation-stop-play"),
@@ -88,24 +134,6 @@ contextBridge.exposeInMainWorld("electron", {
     offStatus: () => {
       ipcRenderer.removeAllListeners("automation-status");
     },
-    onBreakpointTriggered: (
-      callback: (payload: { tTrigger: number }) => void,
-    ) => {
-      ipcRenderer.on("automation-breakpoint-triggered", (_event, payload) =>
-        callback(payload ?? { tTrigger: 0 }),
-      );
-    },
-    offBreakpointTriggered: () => {
-      ipcRenderer.removeAllListeners("automation-breakpoint-triggered");
-    },
-    breakpointResume: (data: {
-      x: number;
-      y: number;
-      w: number;
-      h: number;
-      text: string;
-      tTrigger?: number;
-    }) => ipcRenderer.invoke("automation-breakpoint-resume", data),
     getScriptEvents: (name: string) =>
       ipcRenderer.invoke("automation-get-script-events", name),
     getScreenshot: () => ipcRenderer.invoke("automation-get-screenshot"),

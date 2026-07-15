@@ -10,6 +10,8 @@ import {
   registerGameView,
   unregisterGameView,
 } from "../../../store/gameViewRegistry";
+import { useRecordingStore } from "../../../store/useRecordingStore";
+import { RecordingOverlay } from "../RecordingOverlay";
 import type { GameGeometry } from "../../../types/electron";
 import { ZoomIn, ZoomOut, RefreshCw, ArrowLeft, Monitor } from "lucide-react";
 import { Button } from "../../common/Button";
@@ -161,6 +163,8 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
   );
   const tab = tabs.find((t) => t.id === id);
   const zoomFactor = tab?.zoomFactor || 1;
+  // Whether this tab is being recorded (input-capture overlay over the game).
+  const isRecordingTab = useRecordingStore((s) => s.recordingTabId === id);
 
   const gameAreaRef = useRef<HTMLDivElement | null>(null);
   const webviewRef = useRef<FlashWebviewElement | null>(null);
@@ -233,6 +237,18 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
     registerGameView(id, computeGeometry);
     return () => unregisterGameView(id);
   }, [id, computeGeometry]);
+
+  // When main starts playback into this tab's guest, focus the <webview>
+  // element so injected mouse clicks reach PPAPI Flash. A main-side
+  // WebContents.focus() alone does not establish that input focus.
+  useEffect(() => {
+    const detach = window.electron.automation.onFocusGuest((webContentsId) => {
+      if (webContentsIdRef.current === webContentsId) {
+        webviewRef.current?.focus();
+      }
+    });
+    return detach;
+  }, []);
 
   // Push the active game's target (webContentsId + geometry) to main so the
   // F3/F4/F5 hotkey playback path (which has no renderer call) can target it.
@@ -571,8 +587,22 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
                 transformOrigin: "top left",
                 willChange: "transform",
                 imageRendering: "auto",
+                // [DIAG] Block physical mouse input from reaching the game
+                // during recording, so only the overlay's forwarded
+                // sendInputEvent reaches it. Tests whether injection produces
+                // Flash clicks.
+                pointerEvents: isRecordingTab ? "none" : "auto",
               }}
             />
+            {/* Recording input-capture overlay: above the webview (z-10),
+                below the crash/recovery masks (z-20). focusGuest keeps
+                keyboard focus on the webview so physical keys reach the
+                game while the overlay captures the mouse. */}
+            {isRecordingTab && (
+              <RecordingOverlay
+                focusGuest={() => webviewRef.current?.focus()}
+              />
+            )}
           </div>
         </div>
       </div>
