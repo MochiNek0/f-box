@@ -50,6 +50,20 @@ export type InjectedInputEvent =
       modifiers: string[];
     };
 
+// Mouse event observed inside the game guest (guest-record-preload.cts) and
+// echoed to the host over sendToHost for recording. Coordinates are
+// top-viewport CSS px plus the top viewport size (cx/iw normalizes
+// zoom-independently to the same space as injected coordinates).
+export interface GuestRecordReport {
+  kind: "mousedown" | "mouseup" | "mousemove" | "mousewheel";
+  button: number;
+  cx: number;
+  cy: number;
+  iw: number;
+  ih: number;
+  deltaY?: number;
+}
+
 // Game surface geometry snapshot passed to record/play so recorded
 // screen-absolute coordinates can be normalized and re-mapped for background
 // (isolated) playback via webContents.sendInputEvent.
@@ -103,6 +117,9 @@ export interface AutomationHotkeySlots {
 }
 
 export interface AutomationAPI {
+  // file:// URL of the guest-side recording observer, set as the game
+  // <webview>'s preload attribute.
+  guestRecorderPreloadUrl: string;
   // Fire-and-forget: inject a recorded input event into the game webview.
   forwardInput: (payload: {
     webContentsId: number;

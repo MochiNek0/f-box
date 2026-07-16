@@ -12,7 +12,10 @@ import {
 } from "../../../store/gameViewRegistry";
 import { useRecordingStore } from "../../../store/useRecordingStore";
 import { RecordingOverlay } from "../RecordingOverlay";
-import type { GameGeometry } from "../../../types/electron";
+import type {
+  GameGeometry,
+  GuestRecordReport,
+} from "../../../types/electron";
 import { ZoomIn, ZoomOut, RefreshCw, ArrowLeft, Monitor } from "lucide-react";
 import { Button } from "../../common/Button";
 import { IconButton } from "../../common/IconButton";
@@ -32,9 +35,16 @@ type FlashWebviewElement = HTMLElement & {
   reload: () => void;
   getWebContentsId: () => number;
   insertCSS: (css: string) => Promise<string>;
+  send: (channel: string, ...args: any[]) => void;
   addEventListener(type: string, listener: (event: any) => void): void;
   removeEventListener(type: string, listener: (event: any) => void): void;
 };
+
+// Guest-side recording observer (echoes the mouse input the game actually
+// receives back to the host during recording). The preload attribute must be
+// present before the webview's first load.
+const GUEST_RECORDER_PRELOAD_URL =
+  window.electron?.automation?.guestRecorderPreloadUrl;
 
 const WEBVIEW_FLASH_PROPS: Record<string, string> = {
   plugins: "true",
@@ -237,6 +247,47 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
     registerGameView(id, computeGeometry);
     return () => unregisterGameView(id);
   }, [id, computeGeometry]);
+
+  // Guest recording echo: while this tab records, enable the guest-side
+  // observer (guest-record-preload) and pipe its reports to the overlay's
+  // handler. The overlay registers/unregisters itself via the prop below.
+  const guestReportHandlerRef = useRef<((r: GuestRecordReport) => void) | null>(
+    null,
+  );
+  const registerGuestReportHandler = useCallback(
+    (cb: (r: GuestRecordReport) => void) => {
+      guestReportHandlerRef.current = cb;
+      return () => {
+        guestReportHandlerRef.current = null;
+      };
+    },
+    [],
+  );
+  useEffect(() => {
+    const webview = webviewRef.current;
+    if (!webview || !isRecordingTab) return;
+    const onIpcMessage = (e: any) => {
+      if (e.channel === "fbox-record-input") {
+        guestReportHandlerRef.current?.(e.args?.[0]);
+      } else if (e.channel === "fbox-record-ack") {
+        console.log("[REC] guest recorder attached");
+      }
+    };
+    webview.addEventListener("ipc-message", onIpcMessage);
+    try {
+      webview.send("fbox-record", true);
+    } catch (err) {
+      console.warn("[REC] failed to enable guest recorder:", err);
+    }
+    return () => {
+      webview.removeEventListener("ipc-message", onIpcMessage);
+      try {
+        webview.send("fbox-record", false);
+      } catch {
+        // guest gone; nothing to disable
+      }
+    };
+  }, [isRecordingTab]);
 
   // When main starts playback into this tab's guest, focus the <webview>
   // element so injected mouse clicks reach PPAPI Flash. A main-side
@@ -600,6 +651,7 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
           >
             <webview
               ref={webviewRef}
+              preload={GUEST_RECORDER_PRELOAD_URL}
               src={url}
               {...WEBVIEW_FLASH_PROPS} // Enable Flash & Popups
               className={`absolute left-0 top-0 bg-black transition-opacity duration-300 ${isCrashed ? 'opacity-0' : 'opacity-100'}`}
@@ -623,6 +675,7 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
             {isRecordingTab && (
               <RecordingOverlay
                 focusGuest={() => webviewRef.current?.focus()}
+                registerGuestReportHandler={registerGuestReportHandler}
               />
             )}
           </div>

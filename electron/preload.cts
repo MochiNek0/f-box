@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
+import * as path from "path";
+import { pathToFileURL } from "url";
 
 contextBridge.exposeInMainWorld("electron", {
   getPlatform: () => process.platform,
@@ -46,6 +48,11 @@ contextBridge.exposeInMainWorld("electron", {
 
   // Automation API
   automation: {
+    // file:// URL of the guest-side recording observer, set as the game
+    // <webview>'s preload attribute (compiled next to this file).
+    guestRecorderPreloadUrl: pathToFileURL(
+      path.join(__dirname, "guest-record-preload.cjs"),
+    ).toString(),
     // Live input forwarding from the recording overlay (fire-and-forget).
     forwardInput: (payload: { webContentsId: number; event: any }) =>
       ipcRenderer.send("automation-forward-input", payload),
