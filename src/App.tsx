@@ -6,6 +6,7 @@ import { GameView } from "./components/app/GameView";
 import { FlashTutorial } from "./components/app/FlashTutorial";
 import { Settings } from "./components/app/Settings";
 import { RecorderToolbar } from "./components/app/RecorderToolbar";
+import { PlaybackIndicator } from "./components/app/PlaybackIndicator";
 import { OCRSelectionOverlay } from "./components/app/OCRSelectionOverlay";
 import { UpdateNotifier } from "./components/app/UpdateNotifier";
 import { useTabStore } from "./store/useTabStore";
@@ -206,6 +207,8 @@ const App: React.FC = () => {
                     )}
                   </div>
                 ))}
+                {/* Floating "正在播放" badge, above the game views (z-20). */}
+                <PlaybackIndicator />
               </main>
             </>
           )}
