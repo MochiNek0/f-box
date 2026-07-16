@@ -12,6 +12,8 @@ import {
 } from "../../../store/gameViewRegistry";
 import { useRecordingStore } from "../../../store/useRecordingStore";
 import { RecordingOverlay } from "../RecordingOverlay";
+import { usePointPickStore } from "../../../store/usePointPickStore";
+import { PointPickOverlay } from "../PointPickOverlay";
 import type {
   GameGeometry,
   GuestRecordReport,
@@ -175,6 +177,8 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
   const zoomFactor = tab?.zoomFactor || 1;
   // Whether this tab is being recorded (input-capture overlay over the game).
   const isRecordingTab = useRecordingStore((s) => s.recordingTabId === id);
+  // Whether ClickerTab is waiting for a mouse-position pick on this tab.
+  const isPickingTab = usePointPickStore((s) => s.pending?.tabId === id);
 
   const gameAreaRef = useRef<HTMLDivElement | null>(null);
   const webviewRef = useRef<FlashWebviewElement | null>(null);
@@ -632,7 +636,7 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
                 // during recording, so only the overlay's forwarded
                 // sendInputEvent reaches it. Tests whether injection produces
                 // Flash clicks.
-                pointerEvents: isRecordingTab ? "none" : "auto",
+                pointerEvents: isRecordingTab || isPickingTab ? "none" : "auto",
               }}
             />
             {/* Recording input-capture overlay: above the webview (z-10),
@@ -645,6 +649,7 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
                 registerGuestReportHandler={registerGuestReportHandler}
               />
             )}
+            {isPickingTab && <PointPickOverlay />}
           </div>
         </div>
       </div>

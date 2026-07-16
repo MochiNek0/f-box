@@ -12,6 +12,7 @@ import { UpdateNotifier } from "./components/app/UpdateNotifier";
 import { useTabStore } from "./store/useTabStore";
 import { useSettingsStore } from "./store/useSettingsStore";
 import { useRecordingStore } from "./store/useRecordingStore";
+import { usePointPickStore } from "./store/usePointPickStore";
 import { initPlaybackStatusListener } from "./store/usePlaybackStore";
 import { preprocessImage } from "./utils/imageProcess";
 
@@ -22,6 +23,9 @@ const App: React.FC = () => {
   const [initialRecordName, setInitialRecordName] = useState("");
   // F9 during recording pauses the clock and requests an OCR region selection.
   const breakpointPending = useRecordingStore((s) => s.breakpointPending);
+  // ClickerTab is waiting for a mouse-position pick on the game view — step
+  // Settings aside (without unmounting it) so the game underneath is clickable.
+  const isPickingPoint = usePointPickStore((s) => !!s.pending);
 
   const handleOpenRecorder = (name: string) => {
     setInitialRecordName(name);
@@ -218,6 +222,7 @@ const App: React.FC = () => {
       {/* Settings Modal */}
       <Settings
         isOpen={isSettingsOpen}
+        hidden={isPickingPoint}
         onClose={() => setIsSettingsOpen(false)}
         onOpenRecorder={handleOpenRecorder}
       />

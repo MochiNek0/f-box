@@ -7,27 +7,33 @@ import {
   ArrowUp,
   ArrowDown,
   Save,
+  Crosshair,
 } from "lucide-react";
 import { Button } from "../../../common/Button";
 import { IconButton } from "../../../common/IconButton";
 import { NumberInput } from "../../../common/NumberInput";
 import { KeySelectorDropdown } from "../KeySelectorDropdown";
+import { useTabStore } from "../../../../store/useTabStore";
+import { getGeometryForTab } from "../../../../store/gameViewRegistry";
+import { usePointPickStore } from "../../../../store/usePointPickStore";
+import type { AutomationEvent } from "../../../../types/electron";
 
 const isWindows = () => window.electron.getPlatform() === "win32";
+
+// Renderer-recorded script version. Must stay in sync with the electron-side
+// versioning (automation-geometry.cts) — see useRecordingStore.ts.
+const SCRIPT_VERSION = 3;
+
+const MOUSE_BUTTON_KEYS = ["LButton", "RButton", "MButton", "XButton1", "XButton2"];
 
 export interface ClickerStep {
   id: string;
   key: string;
   intervalMs: number;
-}
-
-interface AutomationKeyEvent {
-  t: number;
-  type: "keydown" | "keyup" | "mousedown" | "mouseup" | "mousemove";
-  key?: string;
-  button?: string;
-  x?: number;
-  y?: number;
+  // Normalized (0..1) click position on the game surface, required for mouse
+  // button steps to play back (see PointPickOverlay).
+  nx?: number;
+  ny?: number;
 }
 
 const createStepId = (): string => {
@@ -53,6 +59,30 @@ export const ClickerTab: React.FC = () => {
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [recordingIndex, setRecordingIndex] = useState<{ id: string } | null>(null);
   const [selectorState, setSelectorState] = useState<{ id: string, isOpen: boolean } | null>(null);
+
+  // Apply a mouse-position pick once PointPickOverlay resolves it.
+  const pickResult = usePointPickStore((s) => s.result);
+  useEffect(() => {
+    if (!pickResult) return;
+    setSteps((prev) =>
+      prev.map((s) =>
+        s.id === pickResult.stepId
+          ? { ...s, nx: pickResult.nx, ny: pickResult.ny }
+          : s,
+      ),
+    );
+    usePointPickStore.getState().consumeResult();
+  }, [pickResult]);
+
+  const handlePickPosition = (stepId: string) => {
+    const { activeTabId, tabs } = useTabStore.getState();
+    const tab = tabs.find((t) => t.id === activeTabId);
+    if (!activeTabId || !tab || tab.isLibrary) {
+      setStatusMessage("❌ 请先打开一个游戏页面");
+      return;
+    }
+    usePointPickStore.getState().start(activeTabId, stepId);
+  };
 
   useEffect(() => {
     // Load config on mount
@@ -270,32 +300,61 @@ export const ClickerTab: React.FC = () => {
     }
   };
 
-  const handleSaveConfig = async () => {
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
+  // Builds a v3 script (meta sentinel + events) for the current steps.
+  // Playback is injection-only now (see PlaybackEngine / scriptSupportsIsolation
+  // in electron/automation-geometry.cts): every script needs a `meta` header
+  // carrying the target game's geometry, and every mouse-button step needs a
+  // picked nx/ny to know where on the game surface to click.
+  const buildScriptEvents = ():
+    | { events: AutomationEvent[]; geometry: NonNullable<ReturnType<typeof getGeometryForTab>> }
+    | { error: string } => {
+    const geometry = getGeometryForTab(useTabStore.getState().activeTabId);
+    if (!geometry) {
+      return { error: "❌ 请先打开一个游戏页面再使用连点器" };
     }
-    setStatusMessage("正在保存配置...");
+    const missingCoord = steps.find(
+      (s) => MOUSE_BUTTON_KEYS.includes(s.key) && (s.nx === undefined || s.ny === undefined),
+    );
+    if (missingCoord) {
+      return { error: "❌ 请先为鼠标按键步骤选择点击坐标" };
+    }
+
     let currentT = 0;
-    const events: AutomationKeyEvent[] = [];
+    const events: AutomationEvent[] = [
+      { t: 0, type: "meta", version: SCRIPT_VERSION, geometry },
+    ];
     for (const step of steps) {
-      const isMouseButton = ["LButton", "RButton", "MButton", "XButton1", "XButton2"].includes(step.key);
+      const isMouseButton = MOUSE_BUTTON_KEYS.includes(step.key);
       const isGamepad = /^\d+Joy/.test(step.key);
       const keyToSend = (isMouseButton || isGamepad) ? step.key : step.key.toUpperCase();
-      
+
       currentT += step.intervalMs;
-      
+
       if (isMouseButton) {
         const button = step.key.toLowerCase().replace("button", "");
-        events.push({ t: currentT, type: "mousedown", button });
+        events.push({ t: currentT, type: "mousedown", button, nx: step.nx, ny: step.ny });
         currentT += 10;
-        events.push({ t: currentT, type: "mouseup", button });
+        events.push({ t: currentT, type: "mouseup", button, nx: step.nx, ny: step.ny });
       } else {
         events.push({ t: currentT, type: "keydown", key: keyToSend });
         currentT += 10;
         events.push({ t: currentT, type: "keyup", key: keyToSend });
       }
     }
-    await window.electron.automation.saveScript("_clicker_temp", events);
+    return { events, geometry };
+  };
+
+  const handleSaveConfig = async () => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    setStatusMessage("正在保存配置...");
+    const result = buildScriptEvents();
+    if ("error" in result) {
+      setStatusMessage(result.error);
+      return;
+    }
+    await window.electron.automation.saveScript("_clicker_temp", result.events);
     await window.electron.automation.saveConfig("_clicker_temp", {
       repeatCount: loopCount,
       steps: steps,
@@ -315,55 +374,17 @@ export const ClickerTab: React.FC = () => {
       return;
     }
 
+    const result = buildScriptEvents();
+    if ("error" in result) {
+      setStatusMessage(result.error);
+      return;
+    }
+
     setIsPlaying(true);
     setStatusMessage("正在启动连点器...");
 
-    // Generate events Array for AHK Automation Script
-    let currentT = 0;
-    const events: AutomationKeyEvent[] = [];
-
-    for (const step of steps) {
-      const isMouseButton = ["LButton", "RButton", "MButton", "XButton1", "XButton2"].includes(step.key);
-      const isGamepad = /^\d+Joy/.test(step.key);
-      const keyToSend = (isMouseButton || isGamepad) ? step.key : step.key.toUpperCase();
-
-      // Delay before action
-      currentT += step.intervalMs;
-
-      if (isMouseButton) {
-        const button = step.key.toLowerCase().replace("button", ""); // "left", "right", etc.
-        events.push({
-          t: currentT,
-          type: "mousedown",
-          button: button,
-        });
-
-        // Quick release
-        currentT += 10;
-        events.push({
-          t: currentT,
-          type: "mouseup",
-          button: button,
-        });
-      } else {
-        events.push({
-          t: currentT,
-          type: "keydown",
-          key: keyToSend,
-        });
-
-        // Quick keyup (e.g. 10ms later)
-        currentT += 10;
-        events.push({
-          t: currentT,
-          type: "keyup",
-          key: keyToSend,
-        });
-      }
-    }
-
     // Save script
-    await window.electron.automation.saveScript("_clicker_temp", events);
+    await window.electron.automation.saveScript("_clicker_temp", result.events);
 
     // Save config (for loop count and restoring UI state)
     await window.electron.automation.saveConfig("_clicker_temp", {
@@ -372,7 +393,13 @@ export const ClickerTab: React.FC = () => {
     });
 
     // Start playback
-    await window.electron.automation.startPlay("_clicker_temp");
+    const playResult = await window.electron.automation.startPlay("_clicker_temp", {
+      geometry: result.geometry,
+    });
+    if (!playResult.success) {
+      setIsPlaying(false);
+      setStatusMessage(`❌ ${playResult.error}`);
+    }
   };
 
   const handleStop = async () => {
@@ -497,6 +524,24 @@ export const ClickerTab: React.FC = () => {
                     className="w-24 text-[10px] font-black"
                   />
                 </div>
+
+                {MOUSE_BUTTON_KEYS.includes(step.key) && (
+                  <div className="flex-1 flex items-center gap-gr-2">
+                    <span className="text-[10px] text-zinc-500 font-black uppercase tracking-tighter">点击位置</span>
+                    <Button
+                      onClick={() => handlePickPosition(step.id)}
+                      disabled={isPlaying}
+                      variant="secondary"
+                      size="sm"
+                      className="h-gr-4 border rounded-gr-1 px-gr-3 text-[10px] font-mono disabled:opacity-50 shadow-lg flex items-center gap-gr-1 bg-white/5 border-border hover:border-primary text-primary"
+                    >
+                      <Crosshair size={12} />
+                      {step.nx !== undefined && step.ny !== undefined
+                        ? `${(step.nx * 100).toFixed(0)}%, ${(step.ny * 100).toFixed(0)}%`
+                        : "未选择"}
+                    </Button>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-gr-1">
@@ -603,7 +648,7 @@ export const ClickerTab: React.FC = () => {
       <div className="glass p-gr-3 rounded-gr-3 border border-white/5">
         <p className="text-[10px] text-zinc-500 leading-relaxed font-medium">
           <span className="text-zinc-400 font-black uppercase tracking-widest mr-gr-1 shadow-primary/10">提示：</span>{" "}
-          延时表示在按下该键之前等待的时间。可以通过调整延时来控制点击频率。运行过程中随时可按{" "}
+          延时表示在按下该键之前等待的时间。可以通过调整延时来控制点击频率。鼠标按键步骤需要先打开游戏并点击“未选择”按钮，在游戏画面上选取点击位置。运行过程中随时可按{" "}
           <span className="text-primary font-bold">F10</span> 停止。
         </p>
       </div>
