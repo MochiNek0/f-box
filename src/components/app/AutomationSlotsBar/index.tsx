@@ -51,24 +51,8 @@ export const AutomationSlotsBar: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    let mounted = true;
-
-    const load = async () => {
-      const [scriptList, savedSlots] = await Promise.all([
-        window.electron.automation.listScripts(),
-        window.electron.automation.getHotkeySlots(),
-      ]);
-      if (!mounted) return;
-      setScripts(scriptList);
-      setSlots(reconcileSlots(savedSlots, scriptList));
-    };
-
-    void load();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    void refreshData();
+  }, [refreshData]);
 
   useEffect(() => {
     const detachStatus = window.electron.automation.onStatus((status) => {

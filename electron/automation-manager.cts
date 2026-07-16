@@ -623,6 +623,7 @@ export class AutomationManager {
   ): Promise<{
     success: boolean;
     events?: any[];
+    meta?: any;
     isolation?: boolean;
     error?: string;
   }> {
@@ -638,12 +639,13 @@ export class AutomationManager {
       }
       const parsed = JSON.parse(content);
       const isolation = scriptSupportsIsolation(parsed);
-      // Hide the meta sentinel from the UI; it's an internal header, not an
-      // input event.
+      // Split off the meta sentinel: it's an internal header, not an input
+      // event, so the UI edits `events` only. It is returned separately so
+      // the renderer can prepend it back when re-saving — dropping it would
+      // permanently downgrade the script to the unplayable legacy format.
+      const meta = parsed.find((e: any) => e.type === "meta") ?? null;
       const events = parsed.filter((e: any) => e.type !== "meta");
-      const breakpointsFound = events.filter((e: any) => e.type === "breakpoint").length;
-      console.log(`[Backend Debug] getScriptEvents loaded ${events.length} events for ${name}. Breakpoints: ${breakpointsFound}, isolation: ${isolation}`);
-      return { success: true, events, isolation };
+      return { success: true, events, meta, isolation };
     } catch (e: any) {
       return { success: false, error: e.message };
     }

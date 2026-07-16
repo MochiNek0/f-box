@@ -163,6 +163,7 @@ export interface AutomationAPI {
   ) => Promise<{
     success: boolean;
     events?: any[];
+    meta?: AutomationEvent | null;
     isolation?: boolean;
     error?: string;
   }>;

@@ -7,11 +7,10 @@ import { KeySelectorDropdown } from "../KeySelectorDropdown";
 const isWindows = () => window.electron.getPlatform() === "win32";
 
 export const KeymapTab: React.FC = () => {
-  const [isPlatformSupported, setIsPlatformSupported] = useState(true);
-
-  useEffect(() => {
-    setIsPlatformSupported(isWindows());
-  }, []);
+  // Synchronous and stable for the app lifetime — no state/effect needed
+  // (state + effect also flashed one frame of the Windows UI on other
+  // platforms before the effect ran).
+  const isPlatformSupported = isWindows();
 
   const [keymapConfig, setKeymapConfig] = useState<{
     enabled: boolean;
@@ -34,6 +33,22 @@ export const KeymapTab: React.FC = () => {
   useEffect(() => {
     window.electron.getKeymapConfig().then(setKeymapConfig);
   }, []);
+
+  // Immutable + functional update: `[...mappings]` alone only copies the
+  // array — writing `newMappings[i][type]` would mutate the mapping object
+  // still held in state.
+  const setMappingKey = (
+    index: number,
+    type: "source" | "target",
+    key: string,
+  ) => {
+    setKeymapConfig((prev) => ({
+      ...prev,
+      mappings: prev.mappings.map((m, i) =>
+        i === index ? { ...m, [type]: key } : m,
+      ),
+    }));
+  };
 
   const handleGlobalKeyDown = (e: KeyboardEvent) => {
     if (recordingIndex) {
@@ -64,10 +79,7 @@ export const KeymapTab: React.FC = () => {
         }
       }
 
-      const newMappings = [...keymapConfig.mappings];
-      newMappings[recordingIndex.index][recordingIndex.type] = key;
-
-      setKeymapConfig({ ...keymapConfig, mappings: newMappings });
+      setMappingKey(recordingIndex.index, recordingIndex.type, key);
       setRecordingIndex(null);
     }
   };
@@ -161,10 +173,7 @@ export const KeymapTab: React.FC = () => {
           let keyName = i < buttonNames.length ? buttonNames[i] : `${i + 1}`;
           const key = `${gamepadNumber}Joy${keyName}`;
 
-          const newMappings = [...keymapConfig.mappings];
-          newMappings[recordingIndex.index][recordingIndex.type] = key;
-
-          setKeymapConfig({ ...keymapConfig, mappings: newMappings });
+          setMappingKey(recordingIndex.index, recordingIndex.type, key);
           setRecordingIndex(null);
           return;
         }
@@ -187,10 +196,7 @@ export const KeymapTab: React.FC = () => {
           }
 
           const key = `${gamepadNumber}Joy${axisName}${direction}`;
-          const newMappings = [...keymapConfig.mappings];
-          newMappings[recordingIndex.index][recordingIndex.type] = key;
-
-          setKeymapConfig({ ...keymapConfig, mappings: newMappings });
+          setMappingKey(recordingIndex.index, recordingIndex.type, key);
           setRecordingIndex(null);
           return;
         }
@@ -231,9 +237,7 @@ export const KeymapTab: React.FC = () => {
 
   const handleKeySelect = (key: string) => {
     if (selectorState) {
-      const newMappings = [...keymapConfig.mappings];
-      newMappings[selectorState.index][selectorState.type] = key;
-      setKeymapConfig({ ...keymapConfig, mappings: newMappings });
+      setMappingKey(selectorState.index, selectorState.type, key);
       setSelectorState(null);
     }
   };

@@ -26,6 +26,7 @@ import { NumberInput } from "../../../common/NumberInput";
 import { useTabStore } from "../../../../store/useTabStore";
 import { getGeometryForTab } from "../../../../store/gameViewRegistry";
 import { useRecordingStore } from "../../../../store/useRecordingStore";
+import { usePlaybackStore } from "../../../../store/usePlaybackStore";
 
 const isWindows = () => window.electron.getPlatform() === "win32";
 
@@ -38,54 +39,18 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
   onOpenRecorder,
   onClose,
 }) => {
-  const [isPlatformSupported, setIsPlatformSupported] = useState(true);
-
-  useEffect(() => {
-    setIsPlatformSupported(isWindows());
-  }, []);
-
-  // Show unsupported message on non-Windows platforms
-  if (!isPlatformSupported) {
-    return (
-      <div className="space-y-6">
-        <section className="bg-zinc-800/30 p-6 rounded-2xl border border-zinc-800/50">
-          <div className="flex flex-col items-center justify-center py-8 text-center">
-            <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center mb-4">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="32"
-                height="32"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="text-zinc-500"
-              >
-                <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
-                <line x1="9" x2="15" y1="9" y2="15" />
-                <line x1="15" x2="9" y1="9" y2="15" />
-              </svg>
-            </div>
-            <h3 className="text-lg font-medium text-zinc-300 mb-2">
-              此功能仅支持 Windows
-            </h3>
-            <p className="text-sm text-zinc-500 max-w-md">
-              自动化录制/回放功能目前仅在 Windows 平台上可用。
-            </p>
-          </div>
-        </section>
-      </div>
-    );
-  }
+  // Synchronous and stable for the app lifetime — no state/effect needed.
+  // Must NOT early-return here: hooks below have to run on every render.
+  const isPlatformSupported = isWindows();
 
   const [scripts, setScripts] = useState<string[]>([]);
   const [recordName, setRecordName] = useState("");
   // Recording state lives in the renderer-side recording store now.
   const isRecording = useRecordingStore((s) => s.recordingTabId !== null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playingScript, setPlayingScript] = useState<string | null>(null);
+  // Playback state survives this tab unmounting (the settings modal closes
+  // when playback starts) — see usePlaybackStore.
+  const isPlaying = usePlaybackStore((s) => s.isPlaying);
+  const playingScript = usePlaybackStore((s) => s.playingScript);
   const [expandedScript, setExpandedScript] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [loopCount, setLoopCount] = useState(0);
@@ -93,6 +58,10 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
   // Config for expanded script
   const [repeatCount, setRepeatCount] = useState(0);
   const [scriptEvents, setScriptEvents] = useState<any[]>([]);
+  // Meta sentinel of the expanded script, held aside so re-saving the events
+  // can prepend it back — losing it would downgrade the script to the
+  // unplayable legacy format.
+  const scriptMetaRef = useRef<any>(null);
   // Whether the expanded script supports background (isolated) playback.
   const [scriptIsolation, setScriptIsolation] = useState(false);
   const [ocrInstalled, setOcrInstalled] = useState(false);
@@ -109,7 +78,8 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
     setScripts(list);
   }, []);
 
-  // Setup status listener
+  // Setup status listener. Play/stop state transitions are handled globally
+  // in usePlaybackStore; this listener only renders progress messages.
   useEffect(() => {
     const detachStatus = window.electron.automation.onStatus(
       (status: string) => {
@@ -129,20 +99,14 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
               break;
             case "CONDITION_MET":
               setStatusMessage(`🎉 停止条件已满足！共执行 ${parts[2]} 轮`);
-              setIsPlaying(false);
-              setPlayingScript(null);
               break;
             case "STOPPED":
               setStatusMessage(`⏹️ 已停止，共执行 ${parts[2]} 轮`);
-              setIsPlaying(false);
-              setPlayingScript(null);
               break;
             case "MAX_LOOPS_REACHED": {
               // STATUS|MAX_LOOPS_REACHED|Target:<n>|Current:<n>
               const target = parts[2]?.split(":")[1] ?? "";
               setStatusMessage(`🎉 已达到设定循环次数，共执行 ${target} 轮`);
-              setIsPlaying(false);
-              setPlayingScript(null);
               break;
             }
             case "OCR_FAILED": {
@@ -157,16 +121,8 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
                 reason = parts[3] ?? "";
               }
               setStatusMessage(`⚠️ OCR 识别故障，已停止播放${reason ? `：${reason}` : ""}`);
-              setIsPlaying(false);
-              setPlayingScript(null);
               break;
             }
-            case "PROCESS_EXIT":
-              if (isPlaying) {
-                setIsPlaying(false);
-                setPlayingScript(null);
-              }
-              break;
             case "OCR_NOT_INSTALLED":
               setStatusMessage("⚠️ 未安装 OCR 扩展，无法触发断点。请先下载。");
               break;
@@ -188,7 +144,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
       detachStatus();
       window.electron.offOcrInstallProgress();
     };
-  }, [isPlaying]);
+  }, []);
 
   // Load scripts and OCR status on mount
   useEffect(() => {
@@ -227,12 +183,12 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
         .getScriptEvents(expandedScript)
         .then((result) => {
           if (result.success && result.events) {
-            console.log(result.events);
-
             setScriptEvents(result.events);
+            scriptMetaRef.current = result.meta ?? null;
             setScriptIsolation(!!result.isolation);
           } else {
             setScriptEvents([]);
+            scriptMetaRef.current = null;
             setScriptIsolation(false);
           }
         });
@@ -245,11 +201,19 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
         });
     } else {
       setScriptEvents([]);
+      scriptMetaRef.current = null;
       setScriptIsolation(false);
       setOcrResults([]);
       setCurrentPage(1);
     }
   }, [expandedScript]);
+
+  // Clear any pending status-message timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
+    };
+  }, []);
 
   const handlePlay = async (name: string) => {
     // 如果当前正在编辑此脚本，先保存配置
@@ -265,8 +229,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
     const target = geometry ? { geometry } : null;
     const result = await window.electron.automation.startPlay(name, target);
     if (result.success) {
-      setIsPlaying(true);
-      setPlayingScript(name);
+      usePlaybackStore.getState().setPlaying(name);
       onClose(); // Close settings popup when playback starts
     } else {
       setStatusMessage(`❌ ${result.error}`);
@@ -275,8 +238,7 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
 
   const handleStopPlay = async () => {
     await window.electron.automation.stopPlay();
-    setIsPlaying(false);
-    setPlayingScript(null);
+    usePlaybackStore.getState().setPlaying(null);
   };
 
   const handleDelete = async (name: string) => {
@@ -303,9 +265,15 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
       expandedScript,
       config,
     );
-    // Also save updated script events (OCR text changes)
+    // Also save updated script events (OCR text changes). Prepend the meta
+    // sentinel held from load — getScriptEvents strips it, and writing the
+    // file without it would permanently break v3 playback.
     if (scriptEvents.length > 0) {
-      await window.electron.automation.saveScript(expandedScript, scriptEvents);
+      const meta = scriptMetaRef.current;
+      await window.electron.automation.saveScript(
+        expandedScript,
+        meta ? [meta, ...scriptEvents] : scriptEvents,
+      );
     }
     if (configResult.success) {
       setStatusMessage("✅ 配置已保存");
@@ -356,6 +324,44 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
     startIndex,
     startIndex + ITEMS_PER_PAGE,
   );
+
+  // Show unsupported message on non-Windows platforms. Placed after all hooks
+  // so the hook order stays identical on every render (early-returning above
+  // them crashes React with "Rendered fewer hooks than expected").
+  if (!isPlatformSupported) {
+    return (
+      <div className="space-y-6">
+        <section className="bg-zinc-800/30 p-6 rounded-2xl border border-zinc-800/50">
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center mb-4">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-zinc-500"
+              >
+                <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+                <line x1="9" x2="15" y1="9" y2="15" />
+                <line x1="15" x2="9" y1="9" y2="15" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-medium text-zinc-300 mb-2">
+              此功能仅支持 Windows
+            </h3>
+            <p className="text-sm text-zinc-500 max-w-md">
+              自动化录制/回放功能目前仅在 Windows 平台上可用。
+            </p>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

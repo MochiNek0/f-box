@@ -45,17 +45,14 @@ const createStep = (): ClickerStep => ({
 });
 
 export const ClickerTab: React.FC = () => {
-  const [isPlatformSupported, setIsPlatformSupported] = useState(true);
+  // Synchronous and stable for the app lifetime — no state/effect needed.
+  const isPlatformSupported = isWindows();
   const [steps, setSteps] = useState<ClickerStep[]>([{ id: "step-1", key: "S", intervalMs: 100 }]);
   const [loopCount, setLoopCount] = useState<number>(0); // 0 = infinite
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [recordingIndex, setRecordingIndex] = useState<{ id: string } | null>(null);
   const [selectorState, setSelectorState] = useState<{ id: string, isOpen: boolean } | null>(null);
-
-  useEffect(() => {
-    setIsPlatformSupported(isWindows());
-  }, []);
 
   useEffect(() => {
     // Load config on mount

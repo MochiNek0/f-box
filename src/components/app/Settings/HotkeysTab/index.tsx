@@ -40,8 +40,9 @@ export const HotkeysTab: React.FC = () => {
       }
 
       setError(null);
+      // App.tsx watches bossKey and pushes it to main via updateBossKey — no
+      // need to call it here too.
       setBossKey(combination);
-      window.electron.updateBossKey(combination);
       setIsRecording(false);
     }
   };

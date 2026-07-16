@@ -13,6 +13,16 @@ interface GameItem {
   icon?: string;
 }
 
+// Custom games come from localStorage, where legacy/hand-edited entries may
+// hold strings `new URL` rejects — a throw here would blank the whole library.
+const safeHostname = (url: string): string => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+};
+
 const DEFAULT_GAMES: GameItem[] = [
   {
     id: "zmhj",
@@ -134,7 +144,7 @@ export const GameLibrary: React.FC = () => {
                   {game.name}
                 </h3>
                 <p className="text-[10px] text-zinc-500 truncate font-black uppercase tracking-widest opacity-40 group-hover:opacity-100 transition-opacity">
-                  {new URL(game.url).hostname}
+                  {safeHostname(game.url)}
                 </p>
               </div>
               <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">

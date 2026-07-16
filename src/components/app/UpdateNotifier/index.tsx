@@ -30,7 +30,8 @@ export const UpdateNotifier: React.FC = () => {
     };
 
     // Check slightly after startup to not block initial render and animations
-    setTimeout(checkUpdate, 3000);
+    const timer = setTimeout(checkUpdate, 3000);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
