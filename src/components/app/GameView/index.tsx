@@ -34,7 +34,6 @@ type FlashWebviewElement = HTMLElement & {
   openDevTools: () => void;
   reload: () => void;
   getWebContentsId: () => number;
-  insertCSS: (css: string) => Promise<string>;
   send: (channel: string, ...args: any[]) => void;
   addEventListener(type: string, listener: (event: any) => void): void;
   removeEventListener(type: string, listener: (event: any) => void): void;
@@ -348,8 +347,6 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       return;
     }
 
-    let frameId = 0;
-    let debounceId = 0;
     const mode = gameResolutionMode || "auto";
 
     const measure = () => {
@@ -364,34 +361,15 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       );
     };
 
-    // Debounce resize-driven re-measures. While the user drags the window,
-    // re-sizing the webview backing store every frame forces the Flash plugin
-    // to re-rasterize continuously, flashing a color block on the right edge
-    // (transform-origin is top-left, so the right side is where size changes
-    // land). Only re-measure once the drag settles.
-    const scheduleMeasure = () => {
-      window.clearTimeout(debounceId);
-      debounceId = window.setTimeout(() => {
-        frameId = window.requestAnimationFrame(measure);
-      }, 150);
-    };
+    // useLayoutEffect runs after layout, so clientWidth/clientHeight are
+    // already accurate here — no need to defer to a later frame.
+    measure();
 
-    // First measure runs immediately so the game sizes correctly on mount.
-    frameId = window.requestAnimationFrame(measure);
-
-    const observer = new ResizeObserver(scheduleMeasure);
+    const observer = new ResizeObserver(measure);
     observer.observe(container);
-    window.addEventListener("resize", scheduleMeasure);
-    window.visualViewport?.addEventListener("resize", scheduleMeasure);
 
     return () => {
-      if (frameId) {
-        window.cancelAnimationFrame(frameId);
-      }
-      window.clearTimeout(debounceId);
       observer.disconnect();
-      window.removeEventListener("resize", scheduleMeasure);
-      window.visualViewport?.removeEventListener("resize", scheduleMeasure);
     };
   }, [gameResolutionMode]);
 
@@ -407,17 +385,6 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       setIsRecovering(false);
       setCrashReason(null);
       applyZoom();
-      // Paint the guest background black so the brief gap while the Flash
-      // plugin re-rasterizes on zoom shows black (matching the frame) instead
-      // of a gray flash. Re-applied every load since guest CSS resets on
-      // navigation.
-      try {
-        await webviewRef.current?.insertCSS(
-          "html,body{background-color:#000 !important;}",
-        );
-      } catch {
-        // insertCSS can reject on about:blank / mid-navigation; harmless.
-      }
       // Capture the guest webContents id for sendInputEvent-based playback.
       try {
         webContentsIdRef.current = webviewRef.current?.getWebContentsId() ?? null;
