@@ -31,6 +31,7 @@ type FlashWebviewElement = HTMLElement & {
   openDevTools: () => void;
   reload: () => void;
   getWebContentsId: () => number;
+  insertCSS: (css: string) => Promise<string>;
   addEventListener(type: string, listener: (event: any) => void): void;
   removeEventListener(type: string, listener: (event: any) => void): void;
 };
@@ -198,7 +199,6 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
     Math.round(gameViewport.height * resolutionScale),
   );
   const inverseScale = 1 / resolutionScale;
-  const isOverflowingWidth = gameViewport.width > gameViewport.containerWidth;
   // For display in toolbar
   const actualResolutionScale = resolutionScale;
 
@@ -276,9 +276,14 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
     }
   }, []);
 
+  // Debounce zoom-button changes: rapid clicks each force the Flash plugin to
+  // re-rasterize, and each re-raster shows a brief gray flash. Update the ref
+  // immediately (so geometry stays correct) but coalesce the actual
+  // setZoomFactor call so it only fires once after the clicks settle.
   useEffect(() => {
     latestZoomRef.current = zoomFactor;
-    applyZoom();
+    const timer = window.setTimeout(applyZoom, 120);
+    return () => window.clearTimeout(timer);
   }, [zoomFactor, applyZoom]);
 
   useEffect(() => {
@@ -293,40 +298,49 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
     }
 
     let frameId = 0;
+    let debounceId = 0;
     const mode = gameResolutionMode || "auto";
 
-    const updateViewport = () => {
-      if (frameId) {
-        window.cancelAnimationFrame(frameId);
-      }
-
-      frameId = window.requestAnimationFrame(() => {
-        const next = getGameViewportMetrics(container, mode);
-        setGameViewport((current) =>
-          current.containerWidth === next.containerWidth &&
-          current.width === next.width &&
-          current.height === next.height &&
-          current.resolutionScale === next.resolutionScale
-            ? current
-            : next,
-        );
-      });
+    const measure = () => {
+      const next = getGameViewportMetrics(container, mode);
+      setGameViewport((current) =>
+        current.containerWidth === next.containerWidth &&
+        current.width === next.width &&
+        current.height === next.height &&
+        current.resolutionScale === next.resolutionScale
+          ? current
+          : next,
+      );
     };
 
-    updateViewport();
+    // Debounce resize-driven re-measures. While the user drags the window,
+    // re-sizing the webview backing store every frame forces the Flash plugin
+    // to re-rasterize continuously, flashing a color block on the right edge
+    // (transform-origin is top-left, so the right side is where size changes
+    // land). Only re-measure once the drag settles.
+    const scheduleMeasure = () => {
+      window.clearTimeout(debounceId);
+      debounceId = window.setTimeout(() => {
+        frameId = window.requestAnimationFrame(measure);
+      }, 150);
+    };
 
-    const observer = new ResizeObserver(updateViewport);
+    // First measure runs immediately so the game sizes correctly on mount.
+    frameId = window.requestAnimationFrame(measure);
+
+    const observer = new ResizeObserver(scheduleMeasure);
     observer.observe(container);
-    window.addEventListener("resize", updateViewport);
-    window.visualViewport?.addEventListener("resize", updateViewport);
+    window.addEventListener("resize", scheduleMeasure);
+    window.visualViewport?.addEventListener("resize", scheduleMeasure);
 
     return () => {
       if (frameId) {
         window.cancelAnimationFrame(frameId);
       }
+      window.clearTimeout(debounceId);
       observer.disconnect();
-      window.removeEventListener("resize", updateViewport);
-      window.visualViewport?.removeEventListener("resize", updateViewport);
+      window.removeEventListener("resize", scheduleMeasure);
+      window.visualViewport?.removeEventListener("resize", scheduleMeasure);
     };
   }, [gameResolutionMode]);
 
@@ -342,6 +356,17 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       setIsRecovering(false);
       setCrashReason(null);
       applyZoom();
+      // Paint the guest background black so the brief gap while the Flash
+      // plugin re-rasterizes on zoom shows black (matching the frame) instead
+      // of a gray flash. Re-applied every load since guest CSS resets on
+      // navigation.
+      try {
+        await webviewRef.current?.insertCSS(
+          "html,body{background-color:#000 !important;}",
+        );
+      } catch {
+        // insertCSS can reject on about:blank / mid-navigation; harmless.
+      }
       // Capture the guest webContents id for sendInputEvent-based playback.
       try {
         webContentsIdRef.current = webviewRef.current?.getWebContentsId() ?? null;
@@ -533,7 +558,7 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       </div>
 
       {/* Webview Container */}
-      <div className="flex-grow pt-10 overflow-hidden bg-zinc-900 relative">
+      <div className="flex-grow pt-10 overflow-hidden bg-black relative">
         {isRecovering && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-900/85 backdrop-blur-sm text-white p-gr-6 text-center">
             <div className="w-14 h-14 bg-primary/15 rounded-full flex items-center justify-center mb-gr-4 border border-primary/30">
@@ -567,9 +592,7 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
         )}
         <div
           ref={gameAreaRef}
-          className={`w-full h-full overflow-auto flex items-start ${
-            isOverflowingWidth ? "justify-start" : "justify-center"
-          }`}
+          className="w-full h-full overflow-x-hidden overflow-y-auto flex items-start justify-center"
         >
           <div
             className="relative h-full flex-shrink-0 overflow-hidden bg-black shadow-2xl"
@@ -585,7 +608,6 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
                 height: `${renderHeight}px`,
                 transform: `scale(${inverseScale})`,
                 transformOrigin: "top left",
-                willChange: "transform",
                 imageRendering: "auto",
                 // [DIAG] Block physical mouse input from reaching the game
                 // during recording, so only the overlay's forwarded
