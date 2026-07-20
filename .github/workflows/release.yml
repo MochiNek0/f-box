@@ -64,3 +64,26 @@ jobs:
             --title "F-Box" \
             --notes-file notes.md \
             release/F-Box.zip
+
+      - name: Publish release to Cloudflare R2
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          TAG="v${GITHUB_REF_NAME}"
+          PREFIX="releases/${TAG}"
+
+          cat > update.json <<EOF
+          {
+            "version": "${TAG}",
+            "downloadUrl": "/${PREFIX}/F-Box.zip"
+          }
+          EOF
+          echo "Generated update.json:"
+          cat update.json
+
+          npx --yes wrangler@4 r2 object put "fbox/${PREFIX}/F-Box.zip" \
+            --file=release/F-Box.zip --remote --content-type=application/zip
+          npx --yes wrangler@4 r2 object put "fbox/update.json" \
+            --file=update.json --remote --content-type=application/json
