@@ -159,7 +159,7 @@ export const GameLibrary: React.FC = () => {
             </div>
 
             {/* Glossy overlay effect */}
-            <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-20 transition-all transform translate-x-4 -translate-y-4 group-hover:translate-x-0 group-hover:translate-y-0 duration-700">
+            <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-20 transition-all transform translate-x-4 -translate-y-4 group-hover:translate-x-0 group-hover:translate-y-0 duration-700 pointer-events-none">
               <div className="bg-primary w-gr-7 h-gr-7 rounded-full blur-3xl" />
             </div>
           </div>
