@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { TitleBar } from "./components/app/TitleBar";
 import { TabBar } from "./components/app/TabBar";
 import { GameLibrary } from "./components/app/GameLibrary";
@@ -6,20 +6,26 @@ import { GameView } from "./components/app/GameView";
 import { FlashTutorial } from "./components/app/FlashTutorial";
 import { Settings } from "./components/app/Settings";
 import { RecorderToolbar } from "./components/app/RecorderToolbar";
+import { PlaybackIndicator } from "./components/app/PlaybackIndicator";
 import { OCRSelectionOverlay } from "./components/app/OCRSelectionOverlay";
 import { UpdateNotifier } from "./components/app/UpdateNotifier";
 import { useTabStore } from "./store/useTabStore";
 import { useSettingsStore } from "./store/useSettingsStore";
+import { useRecordingStore } from "./store/useRecordingStore";
+import { usePointPickStore } from "./store/usePointPickStore";
+import { initPlaybackStatusListener } from "./store/usePlaybackStore";
 import { preprocessImage } from "./utils/imageProcess";
 
 const App: React.FC = () => {
   const [hasFlash, setHasFlash] = useState<boolean | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isRecorderOpen, setIsRecorderOpen] = useState(false);
-  const [showOCRSelection, setShowOCRSelection] = useState(false);
   const [initialRecordName, setInitialRecordName] = useState("");
-  // Store t_trigger (F9 press time) from BREAKPOINT_REQ to pass back on resume
-  const pendingTTrigger = useRef<number>(0);
+  // F9 during recording pauses the clock and requests an OCR region selection.
+  const breakpointPending = useRecordingStore((s) => s.breakpointPending);
+  // ClickerTab is waiting for a mouse-position pick on the game view — step
+  // Settings aside (without unmounting it) so the game underneath is clickable.
+  const isPickingPoint = usePointPickStore((s) => !!s.pending);
 
   const handleOpenRecorder = (name: string) => {
     setInitialRecordName(name);
@@ -42,7 +48,12 @@ const App: React.FC = () => {
   }, [bossKey]);
 
   useEffect(() => {
-    const init = async () => {
+    // App-lifetime playback state tracking (guarded against re-init).
+    if (window.electron?.automation) {
+      initPlaybackStatusListener();
+    }
+
+    const checkFlash = async () => {
       if (window.electron && window.electron.checkFlash) {
         try {
           const result = await window.electron.checkFlash();
@@ -55,125 +66,109 @@ const App: React.FC = () => {
         console.warn("Electron bridge not found");
         setHasFlash(false);
       }
+    };
+    void checkFlash();
 
-      // Breakpoint Trigger Listener
-      if (
-        window.electron &&
-        window.electron.automation &&
-        window.electron.automation.onBreakpointTriggered
-      ) {
-        window.electron.automation.onBreakpointTriggered(({ tTrigger }) => {
-          pendingTTrigger.current = tTrigger;
-          setShowOCRSelection(true);
-        });
-      }
-
-      // OCR Request Listener for Playback
-      if (
-        window.electron &&
-        window.electron.automation &&
-        window.electron.automation.onOCRRequest
-      ) {
-        window.electron.automation.onOCRRequest(async (data) => {
-          console.log(
-            `Renderer: Received OCR Request [id=${data.requestId}]`,
+    // OCR Request Listener for Playback. Registered synchronously (not after
+    // an await) so the effect cleanup always pairs with the registration —
+    // otherwise StrictMode's double-invoke leaves two listeners attached and
+    // every OCR request gets answered twice.
+    if (
+      window.electron &&
+      window.electron.automation &&
+      window.electron.automation.onOCRRequest
+    ) {
+      window.electron.automation.onOCRRequest(async (data) => {
+        console.log(
+          `Renderer: Received OCR Request [id=${data.requestId}]`,
+          data.region,
+          data.expectedText,
+        );
+        try {
+          // Preprocess (Crop & Scale, but disable heavy filters for Paddle)
+          const processedDataUrl = await preprocessImage(
+            data.screenshotData,
             data.region,
-            data.expectedText,
+            {
+              scale: 2,
+              threshold: 0, // Disable binarization
+              invert: false, // Disable inversion
+              grayscale: false, // Keep color info
+            },
           );
-          try {
-            // Preprocess (Crop & Scale, but disable heavy filters for Paddle)
-            const processedDataUrl = await preprocessImage(
-              data.screenshotData,
-              data.region,
-              {
-                scale: 2,
-                threshold: 0, // Disable binarization
-                invert: false, // Disable inversion
-                grayscale: false, // Keep color info
-              },
+
+          // Send base64 (without data prefix) to specific OCR handler
+          const result = await window.electron.ocr(processedDataUrl);
+
+          // result.success === false means the OCR subsystem reported a
+          // failure (plugin missing, process crashed, request timed out,
+          // exe-level error). Treat as a fault \u2014 NOT as "condition not
+          // met" \u2014 so a "stop on text X" script doesn't loop forever
+          // when OCR is broken. Main writes .stop_script_<id> on error.
+          if (!result.success) {
+            console.error(
+              `Renderer: OCR failed [id=${data.requestId}]:`,
+              result.error,
             );
-
-            // Send base64 (without data prefix) to specific OCR handler
-            const result = await window.electron.ocr(processedDataUrl);
-
-            // result.success === false means the OCR subsystem reported a
-            // failure (plugin missing, process crashed, request timed out,
-            // exe-level error). Treat as a fault \u2014 NOT as "condition not
-            // met" \u2014 so a "stop on text X" script doesn't loop forever
-            // when OCR is broken. Main writes .stop_script_<id> on error.
-            if (!result.success) {
-              console.error(
-                `Renderer: OCR failed [id=${data.requestId}]:`,
-                result.error,
-              );
-              window.electron.automation.ocrResponse({
-                requestId: data.requestId,
-                text: "",
-                matched: false,
-                error: result.error || "OCR \u8bc6\u522b\u5931\u8d25",
-              });
-              return;
-            }
-
-            let detectedText = "";
-            if (result.data && result.data.code === 100) {
-              detectedText = result.data
-                .data!.map((item: { text?: string }) => item.text ?? "")
-                .join("");
-            }
-
-            const sanitize = (str: string) => {
-              if (!str) return "";
-              return str.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "");
-            };
-
-            const sanitizedOCR = sanitize(detectedText);
-            const expectedParts = data.expectedText
-              .split("|")
-              .map((p) => p.trim())
-              .filter((p) => p.length > 0);
-
-            const matched = expectedParts.some((part) => {
-              const sanitizedExpected = sanitize(part);
-              return sanitizedOCR.includes(sanitizedExpected);
-            });
-
-            console.log(
-              `Renderer: Match Result [id=${data.requestId}]: ${matched} (Searched "${data.expectedText}" in "${sanitizedOCR}")`,
-            );
-
-            window.electron.automation.ocrResponse({
-              requestId: data.requestId,
-              text: sanitizedOCR,
-              matched,
-            });
-          } catch (err) {
-            console.error(`Renderer: OCR Error [id=${data.requestId}]:`, err);
-            const message =
-              err instanceof Error
-                ? err.message
-                : typeof err === "string"
-                  ? err
-                  : String(err);
             window.electron.automation.ocrResponse({
               requestId: data.requestId,
               text: "",
               matched: false,
-              error: message || "OCR \u8c03\u7528\u5931\u8d25",
+              error: result.error || "OCR \u8bc6\u522b\u5931\u8d25",
             });
+            return;
           }
-        });
-      }
-    };
-    init();
+
+          let detectedText = "";
+          if (result.data && result.data.code === 100) {
+            detectedText = result.data
+              .data!.map((item: { text?: string }) => item.text ?? "")
+              .join("");
+          }
+
+          const sanitize = (str: string) => {
+            if (!str) return "";
+            return str.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, "");
+          };
+
+          const sanitizedOCR = sanitize(detectedText);
+          const expectedParts = data.expectedText
+            .split("|")
+            .map((p) => p.trim())
+            .filter((p) => p.length > 0);
+
+          const matched = expectedParts.some((part) => {
+            const sanitizedExpected = sanitize(part);
+            return sanitizedOCR.includes(sanitizedExpected);
+          });
+
+          console.log(
+            `Renderer: Match Result [id=${data.requestId}]: ${matched} (Searched "${data.expectedText}" in "${sanitizedOCR}")`,
+          );
+
+          window.electron.automation.ocrResponse({
+            requestId: data.requestId,
+            text: sanitizedOCR,
+            matched,
+          });
+        } catch (err) {
+          console.error(`Renderer: OCR Error [id=${data.requestId}]:`, err);
+          const message =
+            err instanceof Error
+              ? err.message
+              : typeof err === "string"
+                ? err
+                : String(err);
+          window.electron.automation.ocrResponse({
+            requestId: data.requestId,
+            text: "",
+            matched: false,
+            error: message || "OCR \u8c03\u7528\u5931\u8d25",
+          });
+        }
+      });
+    }
     return () => {
-      if (
-        window.electron &&
-        window.electron.automation &&
-        window.electron.automation.offBreakpointTriggered
-      ) {
-        window.electron.automation.offBreakpointTriggered();
-      }
       if (
         window.electron &&
         window.electron.automation &&
@@ -216,6 +211,8 @@ const App: React.FC = () => {
                     )}
                   </div>
                 ))}
+                {/* Floating "正在播放" badge, above the game views (z-20). */}
+                <PlaybackIndicator />
               </main>
             </>
           )}
@@ -225,6 +222,7 @@ const App: React.FC = () => {
       {/* Settings Modal */}
       <Settings
         isOpen={isSettingsOpen}
+        hidden={isPickingPoint}
         onClose={() => setIsSettingsOpen(false)}
         onOpenRecorder={handleOpenRecorder}
       />
@@ -236,29 +234,13 @@ const App: React.FC = () => {
         />
       )}
 
-      {/* OCR Region Selection */}
-      {showOCRSelection && (
+      {/* OCR Region Selection (F9 breakpoint during recording) */}
+      {breakpointPending && (
         <OCRSelectionOverlay
-          onComplete={async (data) => {
-            await window.electron.automation.breakpointResume({
-              ...data,
-              tTrigger: pendingTTrigger.current,
-            });
-            pendingTTrigger.current = 0;
-            setShowOCRSelection(false);
-          }}
-          onCancel={async () => {
-            await window.electron.automation.breakpointResume({
-              x: 0,
-              y: 0,
-              w: 0,
-              h: 0,
-              text: "",
-              tTrigger: 0,
-            });
-            pendingTTrigger.current = 0;
-            setShowOCRSelection(false);
-          }}
+          onComplete={(data) =>
+            useRecordingStore.getState().completeBreakpoint(data)
+          }
+          onCancel={() => useRecordingStore.getState().cancelBreakpoint()}
         />
       )}
 

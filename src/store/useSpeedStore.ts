@@ -10,6 +10,14 @@ const clampSpeed = (m: number) => Math.min(MAX_SAFE_SPEED, m);
 const withCrashWarning = (m: number, base: string) =>
   m > SPEED_WARN_THRESHOLD ? `${base}（高倍速可能导致游戏崩溃）` : base;
 
+// Single tracked timer for the transient status message — an untracked
+// setTimeout from an earlier action would clear a newer message early.
+let messageTimer: ReturnType<typeof setTimeout> | null = null;
+const scheduleClearMessage = (clear: () => void, ms: number) => {
+  if (messageTimer) clearTimeout(messageTimer);
+  messageTimer = setTimeout(clear, ms);
+};
+
 interface SpeedStatus {
   active: boolean;
   speed: number;
@@ -73,7 +81,7 @@ export const useSpeedStore = create<SpeedStatus & SpeedActions>((set, get) => ({
       set({ statusMessage: result.error || "启动失败" });
     }
     set({ isLoading: false });
-    setTimeout(() => get().clearMessage(), 4000);
+    scheduleClearMessage(() => get().clearMessage(), 4000);
   },
 
   stopSpeed: async () => {
@@ -85,7 +93,7 @@ export const useSpeedStore = create<SpeedStatus & SpeedActions>((set, get) => ({
       statusMessage: "变速已停止",
       isLoading: false,
     });
-    setTimeout(() => get().clearMessage(), 3000);
+    scheduleClearMessage(() => get().clearMessage(), 3000);
   },
 
   setPendingMultiplier: (multiplier: number) => {
@@ -129,7 +137,7 @@ export const useSpeedStore = create<SpeedStatus & SpeedActions>((set, get) => ({
       } else {
         set({ statusMessage: result.error || "速度设置失败" });
       }
-      setTimeout(() => get().clearMessage(), 2000);
+      scheduleClearMessage(() => get().clearMessage(), 2000);
     } else {
       set({ speed: multiplier });
     }
@@ -151,7 +159,7 @@ export const useSpeedStore = create<SpeedStatus & SpeedActions>((set, get) => ({
         ? `已自动恢复 ${status.speed}x 变速`
         : "游戏已重载，变速已复位",
     }));
-    setTimeout(() => get().clearMessage(), 4000);
+    scheduleClearMessage(() => get().clearMessage(), 4000);
   },
 
   clearMessage: () => set({ statusMessage: "" }),

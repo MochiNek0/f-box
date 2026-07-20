@@ -12,17 +12,19 @@ interface SettingsProps {
   isOpen: boolean;
   onClose: () => void;
   onOpenRecorder: (name: string) => void;
+  hidden?: boolean;
 }
 
 export const Settings: React.FC<SettingsProps> = ({
   isOpen,
   onClose,
   onOpenRecorder,
+  hidden,
 }) => {
   const [activeTab, setActiveTab] = useState<string>("hotkeys");
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} maxWidth="max-w-3xl">
+    <Modal isOpen={isOpen} onClose={onClose} maxWidth="max-w-3xl" hidden={hidden}>
       <div className="flex flex-col h-full">
         <h2 className="text-xl font-black text-foreground flex items-center gap-gr-3 mb-gr-4 uppercase tracking-tighter">
           <Keyboard className="text-primary" size={24} strokeWidth={3} />

@@ -8,6 +8,10 @@ interface ModalProps {
   children: React.ReactNode;
   maxWidth?: string;
   showCloseButton?: boolean;
+  // Keep children mounted (preserving their state) but visually step aside
+  // and stop intercepting clicks — used while ClickerTab waits for a point
+  // pick on the game view underneath.
+  hidden?: boolean;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -16,11 +20,14 @@ export const Modal: React.FC<ModalProps> = ({
   children,
   maxWidth = "max-w-md",
   showCloseButton = true,
+  hidden = false,
 }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-gr-3 z-50">
+    <div
+      className={`fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-gr-3 z-50 ${hidden ? "invisible pointer-events-none" : ""}`}
+    >
       <div
         className={`glass-card p-0 w-full ${maxWidth} max-h-[calc(100vh-24px)] shadow-2xl overflow-auto relative smooth-transition`}
         role="dialog"

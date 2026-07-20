@@ -13,6 +13,16 @@ interface GameItem {
   icon?: string;
 }
 
+// Custom games come from localStorage, where legacy/hand-edited entries may
+// hold strings `new URL` rejects — a throw here would blank the whole library.
+const safeHostname = (url: string): string => {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+};
+
 const DEFAULT_GAMES: GameItem[] = [
   {
     id: "zmhj",
@@ -134,7 +144,7 @@ export const GameLibrary: React.FC = () => {
                   {game.name}
                 </h3>
                 <p className="text-[10px] text-zinc-500 truncate font-black uppercase tracking-widest opacity-40 group-hover:opacity-100 transition-opacity">
-                  {new URL(game.url).hostname}
+                  {safeHostname(game.url)}
                 </p>
               </div>
               <div className="flex justify-end opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">
@@ -149,7 +159,7 @@ export const GameLibrary: React.FC = () => {
             </div>
 
             {/* Glossy overlay effect */}
-            <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-20 transition-all transform translate-x-4 -translate-y-4 group-hover:translate-x-0 group-hover:translate-y-0 duration-700">
+            <div className="absolute top-0 right-0 p-2 opacity-0 group-hover:opacity-20 transition-all transform translate-x-4 -translate-y-4 group-hover:translate-x-0 group-hover:translate-y-0 duration-700 pointer-events-none">
               <div className="bg-primary w-gr-7 h-gr-7 rounded-full blur-3xl" />
             </div>
           </div>

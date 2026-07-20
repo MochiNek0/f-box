@@ -6,6 +6,18 @@ import React, {
   useLayoutEffect,
 } from "react";
 import { useTabStore } from "../../../store/useTabStore";
+import {
+  registerGameView,
+  unregisterGameView,
+} from "../../../store/gameViewRegistry";
+import { useRecordingStore } from "../../../store/useRecordingStore";
+import { RecordingOverlay } from "../RecordingOverlay";
+import { usePointPickStore } from "../../../store/usePointPickStore";
+import { PointPickOverlay } from "../PointPickOverlay";
+import type {
+  GameGeometry,
+  GuestRecordReport,
+} from "../../../types/electron";
 import { ZoomIn, ZoomOut, RefreshCw, ArrowLeft, Monitor } from "lucide-react";
 import { Button } from "../../common/Button";
 import { IconButton } from "../../common/IconButton";
@@ -23,9 +35,17 @@ type FlashWebviewElement = HTMLElement & {
   setZoomFactor: (factor: number) => void;
   openDevTools: () => void;
   reload: () => void;
+  getWebContentsId: () => number;
+  send: (channel: string, ...args: any[]) => void;
   addEventListener(type: string, listener: (event: any) => void): void;
   removeEventListener(type: string, listener: (event: any) => void): void;
 };
+
+// Guest-side recording observer (echoes the mouse input the game actually
+// receives back to the host during recording). The preload attribute must be
+// present before the webview's first load.
+const GUEST_RECORDER_PRELOAD_URL =
+  window.electron?.automation?.guestRecorderPreloadUrl;
 
 const WEBVIEW_FLASH_PROPS: Record<string, string> = {
   plugins: "true",
@@ -149,15 +169,20 @@ const getGameViewportMetrics = (
 };
 
 export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
-  const { backToLibrary, updateZoom, tabs } = useTabStore();
+  const { backToLibrary, updateZoom, tabs, activeTabId } = useTabStore();
   const gameResolutionMode = useSettingsStore(
     (state) => state.gameResolutionMode,
   );
   const tab = tabs.find((t) => t.id === id);
   const zoomFactor = tab?.zoomFactor || 1;
+  // Whether this tab is being recorded (input-capture overlay over the game).
+  const isRecordingTab = useRecordingStore((s) => s.recordingTabId === id);
+  // Whether ClickerTab is waiting for a mouse-position pick on this tab.
+  const isPickingTab = usePointPickStore((s) => s.pending?.tabId === id);
 
   const gameAreaRef = useRef<HTMLDivElement | null>(null);
   const webviewRef = useRef<FlashWebviewElement | null>(null);
+  const webContentsIdRef = useRef<number | null>(null); // guest id for playback injection
   const latestZoomRef = useRef(zoomFactor);
   const latestResolutionScaleRef = useRef(1);
   const [pid, setPid] = useState<number | null>(null);
@@ -187,9 +212,107 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
     Math.round(gameViewport.height * resolutionScale),
   );
   const inverseScale = 1 / resolutionScale;
-  const isOverflowingWidth = gameViewport.width > gameViewport.containerWidth;
   // For display in toolbar
   const actualResolutionScale = resolutionScale;
+
+  // Keep the latest guest surface size available to the imperative geometry
+  // getter (used by background-playback record/play).
+  const renderSizeRef = useRef({ w: renderWidth, h: renderHeight });
+  useEffect(() => {
+    renderSizeRef.current = { w: renderWidth, h: renderHeight };
+  }, [renderWidth, renderHeight]);
+
+  // Compute a fresh GameGeometry snapshot: guest surface size + on-screen
+  // physical-pixel rect of the displayed game. Screen rect lets record-time
+  // screen-absolute coords be normalized; renderWidth/Height map them back to
+  // guest coords at play time. Returns null until the guest is ready.
+  const computeGeometry = useCallback((): GameGeometry | null => {
+    const el = webviewRef.current;
+    const id = webContentsIdRef.current;
+    if (!el || id == null) return null;
+    const rect = el.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    return {
+      webContentsId: id,
+      renderWidth: renderSizeRef.current.w,
+      renderHeight: renderSizeRef.current.h,
+      zoomFactor: latestZoomRef.current,
+      resolutionScale: latestResolutionScaleRef.current,
+      devicePixelRatio: dpr,
+      screenX: (window.screenX + rect.left) * dpr,
+      screenY: (window.screenY + rect.top) * dpr,
+      screenW: rect.width * dpr,
+      screenH: rect.height * dpr,
+    };
+  }, []);
+
+  useEffect(() => {
+    registerGameView(id, computeGeometry);
+    return () => unregisterGameView(id);
+  }, [id, computeGeometry]);
+
+  // Guest recording echo: while this tab records, enable the guest-side
+  // observer (guest-record-preload) and pipe its reports to the overlay's
+  // handler. The overlay registers/unregisters itself via the prop below.
+  const guestReportHandlerRef = useRef<((r: GuestRecordReport) => void) | null>(
+    null,
+  );
+  const registerGuestReportHandler = useCallback(
+    (cb: (r: GuestRecordReport) => void) => {
+      guestReportHandlerRef.current = cb;
+      return () => {
+        guestReportHandlerRef.current = null;
+      };
+    },
+    [],
+  );
+  useEffect(() => {
+    const webview = webviewRef.current;
+    if (!webview || !isRecordingTab) return;
+    const onIpcMessage = (e: any) => {
+      if (e.channel === "fbox-record-input") {
+        guestReportHandlerRef.current?.(e.args?.[0]);
+      } else if (e.channel === "fbox-record-ack") {
+        console.log("[REC] guest recorder attached");
+      }
+    };
+    webview.addEventListener("ipc-message", onIpcMessage);
+    try {
+      webview.send("fbox-record", true);
+    } catch (err) {
+      console.warn("[REC] failed to enable guest recorder:", err);
+    }
+    return () => {
+      webview.removeEventListener("ipc-message", onIpcMessage);
+      try {
+        webview.send("fbox-record", false);
+      } catch {
+        // guest gone; nothing to disable
+      }
+    };
+  }, [isRecordingTab]);
+
+  // When main starts playback into this tab's guest, focus the <webview>
+  // element so injected mouse clicks reach PPAPI Flash. A main-side
+  // WebContents.focus() alone does not establish that input focus.
+  useEffect(() => {
+    const detach = window.electron.automation.onFocusGuest((webContentsId) => {
+      if (webContentsIdRef.current === webContentsId) {
+        webviewRef.current?.focus();
+      }
+    });
+    return detach;
+  }, []);
+
+  // Push the active game's target (webContentsId + geometry) to main so the
+  // F3/F4/F5 hotkey playback path (which has no renderer call) can target it.
+  useEffect(() => {
+    if (id !== activeTabId) return;
+    const geometry = computeGeometry();
+    if (geometry) {
+      window.electron.automation.setActiveTarget({ geometry });
+    }
+  }, [id, activeTabId, computeGeometry, renderWidth, renderHeight, zoomFactor, resolutionScale]);
 
   const applyZoom = useCallback(() => {
     if (!webviewRef.current) {
@@ -207,9 +330,14 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
     }
   }, []);
 
+  // Debounce zoom-button changes: rapid clicks each force the Flash plugin to
+  // re-rasterize, and each re-raster shows a brief gray flash. Update the ref
+  // immediately (so geometry stays correct) but coalesce the actual
+  // setZoomFactor call so it only fires once after the clicks settle.
   useEffect(() => {
     latestZoomRef.current = zoomFactor;
-    applyZoom();
+    const timer = window.setTimeout(applyZoom, 120);
+    return () => window.clearTimeout(timer);
   }, [zoomFactor, applyZoom]);
 
   useEffect(() => {
@@ -223,41 +351,29 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       return;
     }
 
-    let frameId = 0;
     const mode = gameResolutionMode || "auto";
 
-    const updateViewport = () => {
-      if (frameId) {
-        window.cancelAnimationFrame(frameId);
-      }
-
-      frameId = window.requestAnimationFrame(() => {
-        const next = getGameViewportMetrics(container, mode);
-        setGameViewport((current) =>
-          current.containerWidth === next.containerWidth &&
-          current.width === next.width &&
-          current.height === next.height &&
-          current.resolutionScale === next.resolutionScale
-            ? current
-            : next,
-        );
-      });
+    const measure = () => {
+      const next = getGameViewportMetrics(container, mode);
+      setGameViewport((current) =>
+        current.containerWidth === next.containerWidth &&
+        current.width === next.width &&
+        current.height === next.height &&
+        current.resolutionScale === next.resolutionScale
+          ? current
+          : next,
+      );
     };
 
-    updateViewport();
+    // useLayoutEffect runs after layout, so clientWidth/clientHeight are
+    // already accurate here — no need to defer to a later frame.
+    measure();
 
-    const observer = new ResizeObserver(updateViewport);
+    const observer = new ResizeObserver(measure);
     observer.observe(container);
-    window.addEventListener("resize", updateViewport);
-    window.visualViewport?.addEventListener("resize", updateViewport);
 
     return () => {
-      if (frameId) {
-        window.cancelAnimationFrame(frameId);
-      }
       observer.disconnect();
-      window.removeEventListener("resize", updateViewport);
-      window.visualViewport?.removeEventListener("resize", updateViewport);
     };
   }, [gameResolutionMode]);
 
@@ -273,6 +389,19 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       setIsRecovering(false);
       setCrashReason(null);
       applyZoom();
+      // Capture the guest webContents id for sendInputEvent-based playback.
+      try {
+        webContentsIdRef.current = webviewRef.current?.getWebContentsId() ?? null;
+      } catch {
+        webContentsIdRef.current = null;
+      }
+      // Now that the guest id exists, push the active target for hotkey play.
+      if (id === activeTabId) {
+        const geometry = computeGeometry();
+        if (geometry) {
+          window.electron.automation.setActiveTarget({ geometry });
+        }
+      }
       // A fresh dom-ready means the Flash plugin process may have respawned
       // (reload/navigation). Tell the speed manager so it can re-inject into
       // the new process immediately instead of waiting for its poll.
@@ -451,7 +580,7 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       </div>
 
       {/* Webview Container */}
-      <div className="flex-grow pt-10 overflow-hidden bg-zinc-900 relative">
+      <div className="flex-grow pt-10 overflow-hidden bg-black relative">
         {isRecovering && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-900/85 backdrop-blur-sm text-white p-gr-6 text-center">
             <div className="w-14 h-14 bg-primary/15 rounded-full flex items-center justify-center mb-gr-4 border border-primary/30">
@@ -485,9 +614,7 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
         )}
         <div
           ref={gameAreaRef}
-          className={`w-full h-full overflow-auto flex items-start ${
-            isOverflowingWidth ? "justify-start" : "justify-center"
-          }`}
+          className="w-full h-full overflow-x-hidden overflow-y-auto flex items-start justify-center"
         >
           <div
             className="relative h-full flex-shrink-0 overflow-hidden bg-black shadow-2xl"
@@ -495,6 +622,7 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
           >
             <webview
               ref={webviewRef}
+              preload={GUEST_RECORDER_PRELOAD_URL}
               src={url}
               {...WEBVIEW_FLASH_PROPS} // Enable Flash & Popups
               className={`absolute left-0 top-0 bg-black transition-opacity duration-300 ${isCrashed ? 'opacity-0' : 'opacity-100'}`}
@@ -503,10 +631,25 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
                 height: `${renderHeight}px`,
                 transform: `scale(${inverseScale})`,
                 transformOrigin: "top left",
-                willChange: "transform",
                 imageRendering: "auto",
+                // [DIAG] Block physical mouse input from reaching the game
+                // during recording, so only the overlay's forwarded
+                // sendInputEvent reaches it. Tests whether injection produces
+                // Flash clicks.
+                pointerEvents: isRecordingTab || isPickingTab ? "none" : "auto",
               }}
             />
+            {/* Recording input-capture overlay: above the webview (z-10),
+                below the crash/recovery masks (z-20). focusGuest keeps
+                keyboard focus on the webview so physical keys reach the
+                game while the overlay captures the mouse. */}
+            {isRecordingTab && (
+              <RecordingOverlay
+                focusGuest={() => webviewRef.current?.focus()}
+                registerGuestReportHandler={registerGuestReportHandler}
+              />
+            )}
+            {isPickingTab && <PointPickOverlay />}
           </div>
         </div>
       </div>

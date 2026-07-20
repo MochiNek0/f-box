@@ -3,21 +3,20 @@ import {
   BrowserWindow,
   ipcMain,
   globalShortcut,
+  webContents,
 } from "electron";
 import path from "path";
 import fs from "fs";
-import { spawn, ChildProcess } from "child_process";
 import { OcrManager } from "./ocr.cjs";
-import { killProcessTree } from "./process-utils.cjs";
 import { OcrResultManager, OcrResultEntry } from "./ocr-result-manager.cjs";
+import { PlaybackEngine, PlaybackEvent } from "./playback-engine.cjs";
+import {
+  GameGeometry,
+  scriptSupportsIsolation,
+} from "./automation-geometry.cjs";
 
-export interface BreakpointData {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  text: string;
-  tTrigger?: number;
+export interface AutomationTarget {
+  geometry: GameGeometry;
 }
 
 export type AutomationHotkeyKey = "F3" | "F4" | "F5";
@@ -48,23 +47,39 @@ const createEmptyHotkeySlots = (): AutomationHotkeySlots => ({
 export class AutomationManager {
   private mainWindow: () => BrowserWindow | null;
   private ocrManager: OcrManager | null;
-  private automationProcess: ChildProcess | null = null;
-  private currentRecordingScriptPath: string | null = null;
+  // Renderer-side recording overlay active (guards the F3-F5 hotkey slots).
+  private isRecording = false;
+  // Keyboard capture during recording: the guest keeps focus so physical keys
+  // reach the game directly; before-input-event mirrors them into the
+  // renderer's recording session, and F9/F10 act as record-control hotkeys.
+  private recordingGuest: Electron.WebContents | null = null;
+  private recordingInputHandler:
+    | ((event: Electron.Event, input: Electron.Input) => void)
+    | null = null;
+  private recordingHotkeys: Array<"F9" | "F10"> = [];
   private currentPlayingScriptPath: string | null = null;
   private activeHotkeySlot: AutomationHotkeyKey | null = null;
   private configDir: string;
   private scriptsDir: string;
   private scriptsConfigDir: string;
   private hotkeySlotsPath: string;
-  private stdoutBuffer = "";
   private ocrRequestMap = new Map<string, { eventIndex: number; expectedText: string }>();
   private currentRunCount = 0;
   private ocrResultManager: OcrResultManager;
-  private procStdoutHandler: ((data: Buffer) => void) | null = null;
-  private procStderrHandler: ((data: Buffer) => void) | null = null;
-  private procExitHandler: (() => void) | null = null;
-  private procErrorHandler: ((err: Error) => void) | null = null;
   private stopHotkeyRegistered = false;
+  // Background (isolated) playback state
+  private playbackEngine: PlaybackEngine | null = null;
+  // Bumped whenever a new play/record session starts. A stopped engine's
+  // onDone lands asynchronously (up to ~25ms later); if a new session has
+  // already started by then, its teardown must become a no-op instead of
+  // clobbering the new session's state (engine ref, F10, script path).
+  private sessionSeq = 0;
+  private activeTarget: AutomationTarget | null = null;
+  private breakpointResolvers = new Map<
+    string,
+    (decision: "continue" | "stop") => void
+  >();
+  private ocrRequestCounter = 0;
 
   constructor(
     getWindow: () => BrowserWindow | null,
@@ -78,21 +93,6 @@ export class AutomationManager {
     this.scriptsConfigDir = path.join(this.configDir, "scripts_config");
     this.hotkeySlotsPath = path.join(this.configDir, "automation_hotkeys.json");
     this.ocrResultManager = new OcrResultManager();
-  }
-
-  private getAutomationRuntime(): { exe: string; args: string[] } {
-    // Only support automation on Windows
-    if (process.platform !== "win32") {
-      console.log("Automation is only supported on Windows");
-      return { exe: "", args: [] };
-    }
-
-    const exePath = app.isPackaged
-      ? path.join(process.resourcesPath, "automation.exe")
-      : path.join(__dirname, "..", "public", "assets", "automation.exe");
-
-    console.log("Using Automation EXE:", exePath);
-    return { exe: exePath, args: [] };
   }
 
   private ensureScriptDirs(): void {
@@ -190,37 +190,15 @@ export class AutomationManager {
     }
   }
 
-  private killAutomationProcess(): void {
-    this.removeProcessHandlers();
-
-    if (this.automationProcess && !this.automationProcess.killed) {
-      const pid = this.automationProcess.pid;
-      try {
-        this.automationProcess.kill();
-      } catch (e) {
-        // ignore
-      }
-      this.automationProcess = null;
-      killProcessTree(pid);
-    }
-  }
-
   /**
    * Register F10 as a global stop hotkey during playback.
    *
-   * Why this exists: the in-script AHK F10 hook only fires while the game
-   * window is unfocused on Electron (or when AHK is responsive). If the game
-   * grabs focus AND the AHK process hangs on a long Sleep/Send loop, the
-   * advertised "press F10 to stop" stops working — users had to kill the
-   * exe from Task Manager. globalShortcut uses RegisterHotKey under the
-   * hood, runs at the OS level, and fires regardless of focus or whether
-   * AHK is responding.
-   *
-   * Co-existence with the AHK F10: globalShortcut and AHK's low-level
-   * keyboard hook are independent paths; both may fire. stopPlay is
-   * idempotent (killAutomationProcess guards on `.killed`), so double-fire
-   * is harmless. We only register for playback — recording's F10 has a
-   * different meaning in AHK (finalize/save) and we don't want to bypass it.
+   * globalShortcut uses RegisterHotKey under the hood and fires at the OS
+   * level regardless of which window has focus, so the advertised "press F10
+   * to stop" keeps working even when the game grabs focus. stopPlay is
+   * idempotent, so a double fire is harmless. Playback only — during
+   * recording F10 is handled by the recording overlay (stop & save), which
+   * must not be bypassed.
    */
   private registerStopHotkey(): void {
     if (this.stopHotkeyRegistered) return;
@@ -255,21 +233,19 @@ export class AutomationManager {
     this.stopHotkeyRegistered = false;
   }
 
-  private async handlePlaybackOCRRequest(line: string): Promise<void> {
-    // Format: REQ|OCR|<requestId>|<index>|<x>|<y>|<w>|<h>|<text>
-    const parts = line.split("|");
-    const requestId = parts[2];
-    const index = parts[3];
-    const x = parseInt(parts[4]);
-    const y = parseInt(parts[5]);
-    const w = parseInt(parts[6]);
-    const h = parseInt(parts[7]);
-    const expectedText = parts.slice(8).join("|");
-
-    this.ocrRequestMap.set(requestId, {
-      eventIndex: parseInt(index),
-      expectedText,
-    });
+  // Capture + OCR-request dispatch for PlaybackEngine breakpoints. Captures
+  // the HOST page (unaffected by the injection-based playback) and asks the
+  // renderer to OCR the region.
+  private async dispatchOCRRequest(
+    requestId: string,
+    eventIndex: number,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    expectedText: string,
+  ): Promise<void> {
+    this.ocrRequestMap.set(requestId, { eventIndex, expectedText });
 
     console.log(
       `Playback OCR Request [id=${requestId}]: Expected "${expectedText}" at (${x},${y},${w},${h})`,
@@ -283,7 +259,6 @@ export class AutomationManager {
       const screenshotData =
         "data:image/jpeg;base64," + imgBuffer.toString("base64");
 
-      // Request OCR from Renderer
       this.mainWindow()?.webContents.send("automation-ocr-request", {
         requestId,
         screenshotData,
@@ -292,15 +267,9 @@ export class AutomationManager {
       });
     } catch (e) {
       console.error("Playback OCR Request Error:", e);
-      if (this.currentPlayingScriptPath) {
-        // A capture failure is an OCR failure. Match handleOCRResponse: force
-        // a stop instead of continuing, otherwise a "stop on text X" script
-        // loops forever while capture keeps failing.
-        fs.writeFileSync(
-          `${this.currentPlayingScriptPath}.stop_script_${requestId}`,
-          "",
-        );
-      }
+      // A capture failure is an OCR failure: force a stop, otherwise a
+      // "stop on text X" script loops forever while capture keeps failing.
+      this.resolveBreakpoint(requestId, "stop");
       this.mainWindow()?.webContents.send(
         "automation-status",
         `STATUS|OCR_RESULT|${requestId}|0|OCR_REQUEST_FAILED`,
@@ -308,151 +277,29 @@ export class AutomationManager {
     }
   }
 
-  private setupProcessHandlers(): void {
-    if (!this.automationProcess) return;
-
-    // Remove previous handlers if any
-    this.removeProcessHandlers();
-
-    const activeProcess = this.automationProcess;
-    this.stdoutBuffer = "";
-
-    this.procStdoutHandler = (data: Buffer) => {
-      if (this.automationProcess !== activeProcess) return;
-      this.stdoutBuffer += data.toString();
-
-      const lines = this.stdoutBuffer.split(/\r?\n/);
-      this.stdoutBuffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) {
-          continue;
-        }
-
-        if (trimmed.startsWith("SIGNAL|BREAKPOINT_REQ")) {
-          // Check if OCR is installed
-          if (this.ocrManager && this.ocrManager.isInstalled()) {
-            const parts = trimmed.split("|");
-            const tTrigger = parts.length >= 3 ? parseFloat(parts[2]) : 0;
-            this.mainWindow()?.webContents.send("automation-breakpoint-triggered", {
-              tTrigger,
-            });
-          } else {
-            console.warn("OCR plugin not installed, ignoring F9 request");
-            this.mainWindow()?.webContents.send(
-              "automation-status",
-              "STATUS|OCR_NOT_INSTALLED",
-            );
-          }
-        } else if (trimmed.startsWith("REQ|OCR|")) {
-          this.handlePlaybackOCRRequest(trimmed).catch(console.error);
-        } else if (trimmed.startsWith("STATUS|LOOP_START")) {
-          const loopParts = trimmed.split("|");
-          this.currentRunCount = parseInt(loopParts[2] || "0", 10);
-          this.mainWindow()?.webContents.send("automation-status", trimmed);
-        } else {
-          this.mainWindow()?.webContents.send("automation-status", trimmed);
-        }
-      }
-    };
-
-    this.procStderrHandler = (data: Buffer) => {
-      if (this.automationProcess !== activeProcess) return;
-      console.error("Automation stderr:", data.toString());
-    };
-
-    this.procExitHandler = () => {
-      if (this.automationProcess !== activeProcess) return;
-      this.teardownAfterProcessExit();
-    };
-
-    // Async spawn / runtime errors (ENOENT, EACCES, AV block, etc.) emit
-    // 'error' instead of throwing synchronously. Without this listener the
-    // event would crash the main process. We forward to the same teardown as
-    // exit so the UI receives PROCESS_EXIT and recovers.
-    this.procErrorHandler = (err: Error) => {
-      if (this.automationProcess !== activeProcess) return;
-      console.error("Automation process error:", err);
-      this.teardownAfterProcessExit();
-    };
-
-    activeProcess.stdout?.on("data", this.procStdoutHandler);
-    activeProcess.stderr?.on("data", this.procStderrHandler);
-    activeProcess.on("exit", this.procExitHandler);
-    activeProcess.on("error", this.procErrorHandler);
-  }
-
-  /**
-   * Shared teardown for both the 'exit' and 'error' events: reset playback
-   * state, drop the F10 hotkey, notify the UI, and clear the stored handler
-   * refs. Kept as one method so the exit and error paths can never drift.
-   */
-  private teardownAfterProcessExit(): void {
-    this.automationProcess = null;
-    this.currentPlayingScriptPath = null;
-    this.currentRecordingScriptPath = null;
-    this.activeHotkeySlot = null;
-    this.stdoutBuffer = "";
-    this.unregisterStopHotkey();
-    this.mainWindow()?.webContents.send("automation-status", "STATUS|PROCESS_EXIT");
-    this.procStdoutHandler = null;
-    this.procStderrHandler = null;
-    this.procExitHandler = null;
-    this.procErrorHandler = null;
-  }
-
-  private removeProcessHandlers(): void {
-    if (this.automationProcess) {
-      if (this.procStdoutHandler) {
-        this.automationProcess.stdout?.removeListener("data", this.procStdoutHandler);
-      }
-      if (this.procStderrHandler) {
-        this.automationProcess.stderr?.removeListener("data", this.procStderrHandler);
-      }
-      if (this.procExitHandler) {
-        this.automationProcess.removeListener("exit", this.procExitHandler);
-      }
-      if (this.procErrorHandler) {
-        this.automationProcess.removeListener("error", this.procErrorHandler);
-      }
+  // Resolve a pending playback breakpoint. Returns true if one was waiting.
+  private resolveBreakpoint(
+    requestId: string,
+    decision: "continue" | "stop",
+  ): boolean {
+    const resolver = this.breakpointResolvers.get(requestId);
+    if (resolver) {
+      this.breakpointResolvers.delete(requestId);
+      resolver(decision);
+      return true;
     }
-    this.procStdoutHandler = null;
-    this.procStderrHandler = null;
-    this.procExitHandler = null;
-    this.procErrorHandler = null;
+    return false;
   }
 
-  async startRecord(name: string): Promise<{ success: boolean; error?: string }> {
-    this.ensureScriptDirs();
-    this.killAutomationProcess();
-    // killAutomationProcess detaches the exit listener before SIGTERM, so
-    // a previously-registered playback F10 would otherwise survive into the
-    // record session and fire stopPlay() on F10 — killing the recording.
-    this.unregisterStopHotkey();
-    this.currentPlayingScriptPath = null;
-    this.activeHotkeySlot = null;
-    const scriptPath = path.join(this.scriptsDir, `${name}.json`);
-    this.currentRecordingScriptPath = scriptPath;
-
-    try {
-      const runtime = this.getAutomationRuntime();
-      if (!fs.existsSync(runtime.exe)) {
-        return { success: false, error: "未找到运行环境" };
-      }
-
-      const args = [...runtime.args, "record", scriptPath];
-      this.automationProcess = spawn(runtime.exe, args, {
-        windowsHide: true,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-
-      this.setupProcessHandlers();
-
-      return { success: true };
-    } catch (e: any) {
-      return { success: false, error: e.message };
+  // Stop and detach a running background playback engine (idempotent).
+  private stopPlaybackEngine(): void {
+    if (this.playbackEngine) {
+      this.playbackEngine.stop();
+      this.playbackEngine = null;
     }
+    // Unblock any breakpoint the engine may be awaiting.
+    for (const [, resolve] of this.breakpointResolvers) resolve("stop");
+    this.breakpointResolvers.clear();
   }
 
   async saveScript(
@@ -469,24 +316,10 @@ export class AutomationManager {
     }
   }
 
-  async stopRecord(): Promise<{ success: boolean }> {
-    if (this.currentRecordingScriptPath) {
-      const stopFile = this.currentRecordingScriptPath + ".stop";
-      try {
-        fs.writeFileSync(stopFile, "");
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      } catch (e) {
-        console.error("Error creating stop signal:", e);
-      }
-    }
-    this.killAutomationProcess();
-    this.currentRecordingScriptPath = null;
-    return { success: true };
-  }
-
   async startPlay(
     name: string,
     hotkeySlot: AutomationHotkeyKey | null = null,
+    target: AutomationTarget | null = null,
   ): Promise<{ success: boolean; error?: string }> {
     this.ensureScriptDirs();
     // Reset before each run; otherwise a non-looping script inherits the
@@ -510,49 +343,161 @@ export class AutomationManager {
       console.error("Error reading config for play:", e);
     }
 
-    this.killAutomationProcess();
-    // killAutomationProcess detaches the exit listener before SIGTERM, so a
-    // stale F10 registration from the previous run could fire stopPlay()
-    // against the new process unexpectedly. Re-register cleanly below.
+    if (this.isRecording) {
+      return { success: false, error: "正在录制中，请先停止录制" };
+    }
+
+    this.stopPlaybackEngine();
+    // Drop a stale F10 registration from the previous run; re-registered
+    // cleanly by runIsolatedPlayback.
     this.unregisterStopHotkey();
     this.activeHotkeySlot = null;
-    this.currentRecordingScriptPath = null;
 
-    try {
-      const runtime = this.getAutomationRuntime();
-      if (!fs.existsSync(runtime.exe)) {
-        return {
-          success: false,
-          error: "未找到运行环境 (automation.exe 或 AutoHotkey v2)",
-        };
-      }
-
-      this.currentPlayingScriptPath = scriptPath;
-      this.activeHotkeySlot = hotkeySlot;
-      const args = [
-        ...runtime.args,
-        "play",
-        scriptPath,
-        repeatCount.toString(),
-      ];
-      this.automationProcess = spawn(runtime.exe, args, {
-        windowsHide: true,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-
-      this.setupProcessHandlers();
-      this.registerStopHotkey();
-
-      return { success: true };
-    } catch (e: any) {
-      return { success: false, error: e.message };
+    // Playback is injection-only (PlaybackEngine): the script must carry a
+    // v2+ meta sentinel and a live game webview must be available.
+    const events = this.loadScriptEvents(scriptPath);
+    if (!events) {
+      return { success: false, error: "脚本文件损坏，无法播放" };
     }
+    if (!scriptSupportsIsolation(events)) {
+      return { success: false, error: "旧格式脚本无法播放，请重新录制" };
+    }
+
+    const geo = target?.geometry ?? this.activeTarget?.geometry ?? null;
+    const guest =
+      geo && typeof geo.webContentsId === "number"
+        ? webContents.fromId(geo.webContentsId)
+        : null;
+    if (!guest || guest.isDestroyed()) {
+      return { success: false, error: "请先打开游戏再播放" };
+    }
+
+    this.runIsolatedPlayback(
+      scriptPath,
+      guest,
+      events as PlaybackEvent[],
+      geo!,
+      repeatCount,
+      hotkeySlot,
+    );
+    return { success: true };
+  }
+
+  private loadScriptEvents(scriptPath: string): any[] | null {
+    try {
+      let content = fs.readFileSync(scriptPath, "utf-8");
+      if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
+      const parsed = JSON.parse(content);
+      return Array.isArray(parsed) ? parsed : null;
+    } catch (e) {
+      console.error("Failed to load script events:", e);
+      return null;
+    }
+  }
+
+  private runIsolatedPlayback(
+    scriptPath: string,
+    guest: Electron.WebContents,
+    events: PlaybackEvent[],
+    geometry: GameGeometry,
+    maxLoops: number,
+    hotkeySlot: AutomationHotkeyKey | null,
+  ): void {
+    this.currentPlayingScriptPath = scriptPath;
+    this.activeHotkeySlot = hotkeySlot;
+    // Ask the renderer to focus the target game <webview> element. A main-side
+    // WebContents.focus() on a webview guest does NOT establish the input
+    // focus PPAPI Flash needs to accept injected mouse clicks — only a
+    // renderer-side <webview>.focus() does (the recording path relies on the
+    // same call). Without this, injected clicks are silently ignored.
+    this.mainWindow()?.webContents.send(
+      "automation-focus-guest",
+      geometry.webContentsId,
+    );
+    // Callbacks from this engine are only honored while it is still the
+    // current session — a replaced engine winding down must not emit status
+    // or tear down its successor.
+    const session = ++this.sessionSeq;
+
+    const engine = new PlaybackEngine(guest, events, geometry, maxLoops, {
+      onStatus: (line) => {
+        if (session === this.sessionSeq) this.handleEngineStatus(line);
+      },
+      onBreakpoint: (evt, eventIndex) =>
+        session === this.sessionSeq
+          ? this.requestPlaybackOCR(evt, eventIndex)
+          : Promise.resolve("stop" as const),
+      onDone: () => this.teardownAfterPlayback(session),
+    });
+    this.playbackEngine = engine;
+    this.registerStopHotkey();
+
+    engine.run().catch((e) => {
+      console.error("PlaybackEngine error:", e);
+      this.teardownAfterPlayback(session);
+    });
+  }
+
+  // Keep currentRunCount fresh for OCR-result persistence and forward the
+  // status line to the renderer verbatim.
+  private handleEngineStatus(line: string): void {
+    if (line.startsWith("STATUS|LOOP_START")) {
+      const parts = line.split("|");
+      this.currentRunCount = parseInt(parts[2] || "0", 10);
+    }
+    this.mainWindow()?.webContents.send("automation-status", line);
+  }
+
+  private async requestPlaybackOCR(
+    evt: PlaybackEvent,
+    eventIndex: number,
+  ): Promise<"continue" | "stop"> {
+    if (!this.ocrManager || !this.ocrManager.isInstalled()) {
+      console.warn("Breakpoint hit but OCR not installed; continuing.");
+      this.mainWindow()?.webContents.send(
+        "automation-status",
+        "STATUS|OCR_NOT_INSTALLED",
+      );
+      return "continue";
+    }
+    const requestId = `bp_${++this.ocrRequestCounter}`;
+    const promise = new Promise<"continue" | "stop">((resolve) =>
+      this.breakpointResolvers.set(requestId, resolve),
+    );
+    await this.dispatchOCRRequest(
+      requestId,
+      eventIndex,
+      evt.x ?? 0,
+      evt.y ?? 0,
+      evt.w ?? 0,
+      evt.h ?? 0,
+      evt.text ?? "",
+    );
+    return promise;
+  }
+
+  // Shared post-playback cleanup for the engine path (natural finish, stop, or
+  // error). Idempotent — safe to call more than once. No-op when a newer
+  // session has started since (stale engine's late onDone).
+  private teardownAfterPlayback(session: number): void {
+    if (session !== this.sessionSeq) return;
+    this.playbackEngine = null;
+    this.currentPlayingScriptPath = null;
+    this.activeHotkeySlot = null;
+    this.unregisterStopHotkey();
+    for (const [, resolve] of this.breakpointResolvers) resolve("stop");
+    this.breakpointResolvers.clear();
+    this.mainWindow()?.webContents.send(
+      "automation-status",
+      "STATUS|PROCESS_EXIT",
+    );
   }
 
   async stopPlay(): Promise<{ success: boolean }> {
     const stoppedHotkeySlot = this.activeHotkeySlot;
     this.unregisterStopHotkey();
-    this.killAutomationProcess();
+    // Signal stop and let the engine's onDone teardown fire PROCESS_EXIT.
+    this.stopPlaybackEngine();
     this.currentPlayingScriptPath = null;
     this.activeHotkeySlot = null;
     if (stoppedHotkeySlot) {
@@ -574,7 +519,7 @@ export class AutomationManager {
       return { handled: false, success: true, action: "empty", key };
     }
 
-    if (this.currentRecordingScriptPath) {
+    if (this.isRecording) {
       this.mainWindow()?.webContents.send(
         "automation-status",
         `STATUS|HOTKEY_SLOT_IGNORED|${key}|RECORDING`,
@@ -589,7 +534,8 @@ export class AutomationManager {
       };
     }
 
-    if (this.automationProcess && !this.automationProcess.killed) {
+    const playbackActive = !!this.playbackEngine;
+    if (playbackActive) {
       if (this.currentPlayingScriptPath && this.activeHotkeySlot === key) {
         await this.stopPlay();
         return { handled: true, success: true, action: "stop", key, scriptName };
@@ -674,7 +620,13 @@ export class AutomationManager {
 
   async getScriptEvents(
     name: string,
-  ): Promise<{ success: boolean; events?: any[]; error?: string }> {
+  ): Promise<{
+    success: boolean;
+    events?: any[];
+    meta?: any;
+    isolation?: boolean;
+    error?: string;
+  }> {
     this.ensureScriptDirs();
     const scriptPath = path.join(this.scriptsDir, `${name}.json`);
     try {
@@ -685,36 +637,18 @@ export class AutomationManager {
       if (content.charCodeAt(0) === 0xFEFF) {
         content = content.slice(1);
       }
-      const events = JSON.parse(content);
-      const breakpointsFound = events.filter((e: any) => e.type === "breakpoint").length;
-      console.log(`[Backend Debug] getScriptEvents loaded ${events.length} events for ${name}. Breakpoints: ${breakpointsFound}`);
-      return { success: true, events };
+      const parsed = JSON.parse(content);
+      const isolation = scriptSupportsIsolation(parsed);
+      // Split off the meta sentinel: it's an internal header, not an input
+      // event, so the UI edits `events` only. It is returned separately so
+      // the renderer can prepend it back when re-saving — dropping it would
+      // permanently downgrade the script to the unplayable legacy format.
+      const meta = parsed.find((e: any) => e.type === "meta") ?? null;
+      const events = parsed.filter((e: any) => e.type !== "meta");
+      return { success: true, events, meta, isolation };
     } catch (e: any) {
       return { success: false, error: e.message };
     }
-  }
-
-  async breakpointResume(
-    data: BreakpointData,
-  ): Promise<{ success: boolean; error?: string }> {
-    if (this.automationProcess && !this.automationProcess.killed) {
-      if (this.currentRecordingScriptPath) {
-        const resumeFile = this.currentRecordingScriptPath + ".resume";
-        fs.writeFileSync(
-          resumeFile,
-          JSON.stringify({
-            t_trigger: data.tTrigger ?? 0,
-            x: data.x,
-            y: data.y,
-            w: data.w,
-            h: data.h,
-            text: data.text,
-          }),
-        );
-      }
-      return { success: true };
-    }
-    return { success: false, error: "No active automation process" };
   }
 
   async getScreenshot(): Promise<{ error?: string; data?: string }> {
@@ -728,11 +662,133 @@ export class AutomationManager {
     }
   }
 
+  // Attach recording keyboard capture to the guest. Focus stays on the guest
+  // during recording (the overlay only intercepts the mouse), so physical
+  // keys reach the game natively — before-input-event mirrors each key into
+  // the renderer's recording session without consuming it. F9/F10 are
+  // record-control keys, registered as global shortcuts (focus-independent,
+  // same semantics as the old AHK Hotkey()); the before-input branch below is
+  // only a fallback for when another app owns the registration.
+  private startRecordingCapture(guest: Electron.WebContents): void {
+    this.stopRecordingCapture();
+
+    const handler = (event: Electron.Event, input: Electron.Input) => {
+      if (input.type !== "keyDown" && input.type !== "keyUp") return;
+      if (input.key === "F9" || input.key === "F10") {
+        event.preventDefault();
+        if (input.type === "keyDown") this.sendRecordHotkey(input.key);
+        return;
+      }
+      this.mainWindow()?.webContents.send("automation-record-key", {
+        type: input.type,
+        code: input.code,
+        key: input.key,
+        isAutoRepeat: input.isAutoRepeat,
+      });
+    };
+    guest.on("before-input-event", handler);
+    this.recordingGuest = guest;
+    this.recordingInputHandler = handler;
+
+    for (const key of ["F9", "F10"] as const) {
+      try {
+        if (globalShortcut.register(key, () => this.sendRecordHotkey(key))) {
+          this.recordingHotkeys.push(key);
+        } else {
+          // Taken by another app; the before-input fallback still works while
+          // the guest has focus.
+          console.warn(`Failed to register recording hotkey ${key}`);
+        }
+      } catch (e) {
+        console.error(`Error registering recording hotkey ${key}:`, e);
+      }
+    }
+  }
+
+  private sendRecordHotkey(key: "F9" | "F10"): void {
+    this.mainWindow()?.webContents.send("automation-record-hotkey", key);
+  }
+
+  private stopRecordingCapture(): void {
+    if (
+      this.recordingGuest &&
+      this.recordingInputHandler &&
+      !this.recordingGuest.isDestroyed()
+    ) {
+      this.recordingGuest.removeListener(
+        "before-input-event",
+        this.recordingInputHandler,
+      );
+    }
+    this.recordingGuest = null;
+    this.recordingInputHandler = null;
+    for (const key of this.recordingHotkeys) {
+      try {
+        globalShortcut.unregister(key);
+      } catch (e) {
+        console.error(`Error unregistering recording hotkey ${key}:`, e);
+      }
+    }
+    this.recordingHotkeys = [];
+  }
+
   setupIPCHandlers(): void {
-    // Start Recording
-    ipcMain.handle("automation-start-record", async (_event, name: string) => {
-      return this.startRecord(name);
-    });
+    // Live input forwarding from the recording overlay. Deliberately "dumb":
+    // the renderer does all coordinate/keyCode mapping; main only validates
+    // the guest and injects. A destroyed guest is silently dropped.
+    ipcMain.on(
+      "automation-forward-input",
+      (_event, payload: { webContentsId?: number; event?: any } | null) => {
+        if (
+          !payload ||
+          typeof payload.webContentsId !== "number" ||
+          !payload.event
+        ) {
+          return;
+        }
+        const guest = webContents.fromId(payload.webContentsId);
+        if (!guest || guest.isDestroyed()) return;
+        // [DEBUG coord] recording-time forwarded injection
+        if (payload.event.type === "mouseDown" || payload.event.type === "mouseUp") {
+          console.log(
+            `[REC-FWD] type=${payload.event.type} x=${payload.event.x} y=${payload.event.y} button=${payload.event.button}`,
+          );
+        }
+        try {
+          guest.sendInputEvent(payload.event);
+        } catch (e) {
+          console.error("automation-forward-input sendInputEvent failed:", e);
+        }
+      },
+    );
+
+    // Renderer-side recording started/ended: guards the F3-F5 hotkey slots,
+    // stops any active playback so it can't inject into the game while the
+    // user is recording it, and attaches/detaches the keyboard capture on the
+    // guest (see startRecordingCapture).
+    ipcMain.on(
+      "automation-recording-state",
+      (
+        _event,
+        payload: { recording?: boolean; webContentsId?: number } | null,
+      ) => {
+        this.isRecording = !!payload?.recording;
+        if (this.isRecording) {
+          this.stopPlay().catch((e) =>
+            console.error("stopPlay (recording start) failed:", e),
+          );
+          const guest =
+            typeof payload?.webContentsId === "number"
+              ? webContents.fromId(payload.webContentsId)
+              : null;
+          if (guest && !guest.isDestroyed()) {
+            this.startRecordingCapture(guest);
+          }
+        } else {
+          this.stopRecordingCapture();
+        }
+      },
+    );
 
     // Save Script Directly
     ipcMain.handle(
@@ -742,15 +798,22 @@ export class AutomationManager {
       },
     );
 
-    // Stop Recording
-    ipcMain.handle("automation-stop-record", async () => {
-      return this.stopRecord();
-    });
-
     // Start Playing
-    ipcMain.handle("automation-start-play", async (_event, name: string) => {
-      return this.startPlay(name);
-    });
+    ipcMain.handle(
+      "automation-start-play",
+      async (_event, name: string, target?: AutomationTarget | null) => {
+        return this.startPlay(name, null, target ?? null);
+      },
+    );
+
+    // Cache the active game webview target (webContentsId + geometry) for the
+    // F3/F4/F5 hotkey playback path, which has no renderer call to pass it.
+    ipcMain.on(
+      "automation-set-active-target",
+      (_event, target: AutomationTarget | null) => {
+        this.activeTarget = target ?? null;
+      },
+    );
 
     // Stop Playing
     ipcMain.handle("automation-stop-play", async () => {
@@ -791,14 +854,6 @@ export class AutomationManager {
     ipcMain.handle("automation-get-config", async (_event, name: string) => {
       return this.getConfig(name);
     });
-
-    // Breakpoint Resume
-    ipcMain.handle(
-      "automation-breakpoint-resume",
-      async (_event, data: BreakpointData) => {
-        return this.breakpointResume(data);
-      },
-    );
 
     // Get Script Events
     ipcMain.handle(
@@ -871,34 +926,14 @@ export class AutomationManager {
       this.ocrResultManager.saveResult(scriptName, entry);
     }
 
-    if (this.currentPlayingScriptPath) {
-      try {
-        if (failed) {
-          console.log(
-            `OCR FAILED. Stopping automation [id=${data.requestId}]: ${data.error}`,
-          );
-          fs.writeFileSync(
-            `${this.currentPlayingScriptPath}.stop_script_${data.requestId}`,
-            "",
-          );
-        } else if (data.matched) {
-          console.log(
-            `OCR matched! Stopping automation [id=${data.requestId}].`,
-          );
-          fs.writeFileSync(
-            `${this.currentPlayingScriptPath}.stop_script_${data.requestId}`,
-            "",
-          );
-        } else {
-          console.log(`OCR did NOT match. Continuing [id=${data.requestId}].`);
-          fs.writeFileSync(
-            `${this.currentPlayingScriptPath}.continue_${data.requestId}`,
-            "",
-          );
-        }
-      } catch (e) {
-        console.error("Failed to write OCR signal file:", e);
-      }
+    const decision: "continue" | "stop" =
+      failed || data.matched ? "stop" : "continue";
+
+    // Resolve the engine's in-process breakpoint promise.
+    if (this.resolveBreakpoint(data.requestId, decision)) {
+      console.log(
+        `OCR [id=${data.requestId}] resolved breakpoint -> ${decision}`,
+      );
     }
   }
 
@@ -913,16 +948,19 @@ export class AutomationManager {
 
   kill(): void {
     this.unregisterStopHotkey();
-    this.killAutomationProcess();
+    this.stopPlaybackEngine();
+    this.stopRecordingCapture();
+    this.isRecording = false;
     this.ocrRequestMap.clear();
     this.currentRunCount = 0;
   }
 
   cleanupIPCHandlers(): void {
+    ipcMain.removeAllListeners("automation-set-active-target");
+    ipcMain.removeAllListeners("automation-forward-input");
+    ipcMain.removeAllListeners("automation-recording-state");
     const channels = [
-      "automation-start-record",
       "automation-save-script",
-      "automation-stop-record",
       "automation-start-play",
       "automation-stop-play",
       "automation-list-scripts",
@@ -931,7 +969,6 @@ export class AutomationManager {
       "automation-delete-script",
       "automation-save-config",
       "automation-get-config",
-      "automation-breakpoint-resume",
       "automation-get-script-events",
       "automation-get-screenshot",
       "automation-get-ocr-results",

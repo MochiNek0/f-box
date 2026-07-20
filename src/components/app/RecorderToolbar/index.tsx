@@ -1,6 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Circle, Square, X } from "lucide-react";
 import { IconButton } from "../../common/IconButton";
+import { useTabStore } from "../../../store/useTabStore";
+import { getGeometryForTab } from "../../../store/gameViewRegistry";
+import { useRecordingStore } from "../../../store/useRecordingStore";
 
 interface RecorderToolbarProps {
   initialName: string;
@@ -11,41 +14,38 @@ export const RecorderToolbar: React.FC<RecorderToolbarProps> = ({
   initialName,
   onClose,
 }) => {
-  const [isRecording, setIsRecording] = useState(false);
+  const isRecording = useRecordingStore((s) => s.recordingTabId !== null);
   const [status, setStatus] = useState("准备就绪");
+  const wasRecordingRef = useRef(false);
 
+  // Auto-close once recording ends (stop button here or F10 on the overlay).
   useEffect(() => {
-    const detachStatus = window.electron.automation.onStatus(
-      (status: string) => {
-        if (status === "STATUS|RECORDING") {
-          setIsRecording(true);
-        } else if (status === "STATUS|RECORD_DONE") {
-          setIsRecording(false);
-          onClose(); // Auto-close when recording is done (handles F10 stop)
-        } else if (status === "STATUS|PROCESS_EXIT") {
-          setIsRecording(false);
-        }
-      },
-    );
-
-    return () => {
-      detachStatus();
-    };
-  }, []);
-
-  const handleStart = async () => {
-    if (!initialName) return;
-    const result = await window.electron.automation.startRecord(initialName);
-    if (!result.success) {
-      alert(`启动录制失败: ${result.error}`);
+    if (wasRecordingRef.current && !isRecording) {
+      onClose();
     }
+    wasRecordingRef.current = isRecording;
+  }, [isRecording, onClose]);
+
+  const handleStart = () => {
+    if (!initialName) return;
+    // Recording captures input on an overlay over the active game webview, so
+    // a live game tab (with known geometry) is required.
+    const tabId = useTabStore.getState().activeTabId;
+    const geometry = getGeometryForTab(tabId);
+    if (!geometry) {
+      alert("请先打开游戏再录制");
+      return;
+    }
+    useRecordingStore.getState().start(tabId, initialName, geometry);
   };
 
   const handleStop = async () => {
     setStatus("正在保存...");
-    await window.electron.automation.stopRecord();
-    setIsRecording(false);
-    onClose(); // This should trigger reopening settings
+    const result = await useRecordingStore.getState().stopAndSave();
+    if (!result.success) {
+      alert(`保存脚本失败: ${result.error}`);
+    }
+    // onClose fires via the isRecording effect above.
   };
 
   return (

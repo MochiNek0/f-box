@@ -10,6 +10,11 @@ SetMouseDelay(-1)
 SetWinDelay(0)
 ProcessSetPriority("High")
 
+; 提升系统定时器分辨率至 1ms。Windows 默认 ~15.6ms，不提升的话下面 4ms 的
+; SetTimer 实际约 15ms 才触发一次，是手柄映射延迟的最大来源。
+; 进程退出时系统会自动恢复分辨率，无需手动 timeEndPeriod。
+DllCall("winmm\timeBeginPeriod", "uint", 1)
+
 global POLL_INTERVAL_MS := 4
 global TRIGGER_THRESHOLD := 20
 global STICK_THRESHOLD := 12000
@@ -124,21 +129,49 @@ for source, target in keyboardMappings {
 SetTimer(PollJoysticks, POLL_INTERVAL_MS)
 SetTimer(CheckParentProcess, 5000)
 
+global padStates := [0, 0, 0, 0]      ; 各手柄最近一次读取的状态（0 = 未连接）
+global padPacket := [-1, -1, -1, -1]  ; 各手柄上次的 dwPacketNumber
+global padRetryAt := [0, 0, 0, 0]     ; 断开的手柄下次允许重试的 tick
+
 PollJoysticks() {
-    ; 一次性获取 4 个手柄的状态
-    states := []
+    global padStates, padPacket, padRetryAt
+    now := A_TickCount
+    changed := false
+
     Loop 4 {
-        states.Push(XInput_GetState(A_Index - 1))
+        i := A_Index
+        ; 断开的手柄降频重试（2s 一次）：对未连接槽位调 XInputGetState 非常
+        ; 耗时（毫秒级），每 4ms 全量轮询空槽位会显著拖慢轮询节奏。
+        if (padStates[i] == 0 && now < padRetryAt[i])
+            continue
+
+        state := XInput_GetState(i - 1)
+        if (state == 0) {
+            if (padStates[i] != 0)
+                changed := true
+            padStates[i] := 0
+            padPacket[i] := -1
+            padRetryAt[i] := now + 2000
+        } else {
+            if (state.dwPacketNumber != padPacket[i])
+                changed := true
+            padStates[i] := state
+            padPacket[i] := state.dwPacketNumber
+        }
     }
+
+    ; dwPacketNumber 全部未变 = 手柄输入无任何变化，跳过映射扫描
+    if !changed
+        return
 
     for item in joyMappings {
         src := item.src
         tar := item.tar
         pIdx := item.pIdx
         btn := item.btn
-        
+
         ; 获取当前绑定的手柄状态，如果指定的断开，则回退到第一个已连接的手柄
-        state := GetActiveState(pIdx, states)
+        state := GetActiveState(pIdx, padStates)
         isPressed := GetXInputButtonState(state, btn)
 
         try {
@@ -328,8 +361,8 @@ XInput_Init(dll:="")
 XInput_GetState(UserIndex)
 {
     global _XInput_GetState
-    
-    xiState := Buffer(16)
+
+    static xiState := Buffer(16) ; 复用缓冲区，避免高频轮询下的重复分配
 
     if err := DllCall(_XInput_GetState ,"uint",UserIndex ,"ptr",xiState) {
         if err = 1167 ; ERROR_DEVICE_NOT_CONNECTED

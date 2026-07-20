@@ -120,7 +120,7 @@ export const OCRSelectionOverlay: React.FC<OCRSelectionOverlayProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[10000] cursor-crosshair bg-blackSelect-none"
+      className="fixed inset-0 z-[10000] cursor-crosshair bg-black select-none"
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
