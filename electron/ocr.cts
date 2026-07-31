@@ -9,6 +9,10 @@ import AdmZip from "adm-zip";
 
 import { getFastestProxy } from "./proxy-utils.cjs";
 
+const CDN_OCR_URL = "https://fbox-cdn.bearbug.dpdns.org/plugins/ocr.zip";
+const GITHUB_OCR_URL =
+  "https://github.com/MochiNek0/f-box/releases/download/ocr-plugin/ocr.zip";
+
 interface OcrRequest {
   resolve: (data: any) => void;
   reject: (err: any) => void;
@@ -265,29 +269,43 @@ export class OcrManager {
       return false;
     }
 
-    const rawUrl =
-      "https://github.com/MochiNek0/f-box/releases/download/ocr-plugin/ocr.zip";
-    const downloadUrl = await getFastestProxy(rawUrl);
     const tempDir = app.getPath("temp");
     const zipPath = path.join(tempDir, `ocr_${Date.now()}.zip`);
     const destDir = this.getPluginPath();
 
-    const tryDownload = async (url: string) => {
-      console.log(`Downloading OCR plugin from ${url}...`);
-      await this.downloadFile(url, zipPath, onProgress);
-    };
+    // Cloudflare R2 first (same bucket that serves app updates), GitHub as
+    // fallback — via the fastest proxy, then direct. The proxy probe is only
+    // paid for if the CDN is unreachable, hence the lazy resolvers.
+    const sources: Array<() => Promise<string>> = [
+      async () => CDN_OCR_URL,
+      () => getFastestProxy(GITHUB_OCR_URL),
+      async () => GITHUB_OCR_URL,
+    ];
 
     try {
-      try {
-        await tryDownload(downloadUrl);
-      } catch (e) {
-        console.warn(
-          `Failed to download from selected URL, trying original URL...`,
-          e,
-        );
-        // Reset progress if it failed halfway
-        if (onProgress) onProgress(0);
-        await tryDownload(rawUrl);
+      let downloaded = false;
+      for (const resolveUrl of sources) {
+        let url: string;
+        try {
+          url = await resolveUrl();
+        } catch (e) {
+          console.warn("Failed to resolve an OCR plugin download URL:", e);
+          continue;
+        }
+
+        try {
+          console.log(`Downloading OCR plugin from ${url}...`);
+          await this.downloadFile(url, zipPath, onProgress);
+          downloaded = true;
+          break;
+        } catch (e) {
+          console.warn(`Failed to download OCR plugin from ${url}:`, e);
+          // Reset progress if it failed halfway
+          if (onProgress) onProgress(0);
+        }
+      }
+      if (!downloaded) {
+        throw new Error("All OCR plugin download sources failed");
       }
 
       console.log(`Extracting OCR plugin to ${destDir}...`);
