@@ -326,7 +326,45 @@ export const ClickerTab: React.FC = () => {
     for (const step of steps) {
       const isMouseButton = MOUSE_BUTTON_KEYS.includes(step.key);
       const isGamepad = /^\d+Joy/.test(step.key);
-      const keyToSend = (isMouseButton || isGamepad) ? step.key : step.key.toUpperCase();
+      let keyToSend = step.key;
+      if (!isMouseButton && !isGamepad) {
+        const lower = step.key.toLowerCase();
+        if (/^numpad[0-9]$/i.test(step.key)) {
+          keyToSend = `num${step.key.slice(6)}`;
+        } else if (lower === "numpadadd" || lower === "numadd") {
+          keyToSend = "numadd";
+        } else if (
+          lower === "numpadsub" ||
+          lower === "numpadsubtract" ||
+          lower === "numsub"
+        ) {
+          keyToSend = "numsub";
+        } else if (
+          lower === "numpadmult" ||
+          lower === "numpadmultiply" ||
+          lower === "nummult"
+        ) {
+          keyToSend = "nummult";
+        } else if (
+          lower === "numpaddiv" ||
+          lower === "numpaddivide" ||
+          lower === "numdiv"
+        ) {
+          keyToSend = "numdiv";
+        } else if (
+          lower === "numpaddot" ||
+          lower === "numpaddecimal" ||
+          lower === "numdec"
+        ) {
+          keyToSend = "numdec";
+        } else if (lower === "numpadenter") {
+          keyToSend = "Return";
+        } else if (/^f([1-9]|1[0-2])$/i.test(step.key)) {
+          keyToSend = step.key.toUpperCase();
+        } else if (step.key.length === 1) {
+          keyToSend = step.key.toLowerCase();
+        }
+      }
 
       currentT += step.intervalMs;
 

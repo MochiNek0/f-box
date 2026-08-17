@@ -102,9 +102,80 @@ for (let n = 0; n <= 9; n++) {
 }
 VK_TO_KEYCODE[0x6a] = "nummult";
 VK_TO_KEYCODE[0x6b] = "numadd";
+VK_TO_KEYCODE[0x6c] = "numdec";
 VK_TO_KEYCODE[0x6d] = "numsub";
 VK_TO_KEYCODE[0x6e] = "numdec";
 VK_TO_KEYCODE[0x6f] = "numdiv";
+
+const NUMPAD_CHAR_MAP: Record<string, string> = {
+  num0: "0",
+  num1: "1",
+  num2: "2",
+  num3: "3",
+  num4: "4",
+  num5: "5",
+  num6: "6",
+  num7: "7",
+  num8: "8",
+  num9: "9",
+  nummult: "*",
+  numadd: "+",
+  numsub: "-",
+  numdec: ".",
+  numdiv: "/",
+};
+
+const NUMPAD_KEY_MAP: Record<string, string> = {
+  numpad0: "num0",
+  numpad1: "num1",
+  numpad2: "num2",
+  numpad3: "num3",
+  numpad4: "num4",
+  numpad5: "num5",
+  numpad6: "num6",
+  numpad7: "num7",
+  numpad8: "num8",
+  numpad9: "num9",
+  numpadadd: "numadd",
+  numpadsub: "numsub",
+  numpadsubtract: "numsub",
+  numpadmult: "nummult",
+  numpadmultiply: "nummult",
+  numpaddiv: "numdiv",
+  numpaddivide: "numdiv",
+  numpaddot: "numdec",
+  numpaddecimal: "numdec",
+  numpadenter: "Return",
+};
+
+export function normalizeKeyCode(rawKey: string): string {
+  if (!rawKey) return "";
+  const trimmed = rawKey.trim();
+  const lower = trimmed.toLowerCase();
+
+  if (NUMPAD_KEY_MAP[lower]) {
+    return NUMPAD_KEY_MAP[lower];
+  }
+  if (/^numpad[0-9]$/i.test(trimmed)) {
+    return `num${trimmed.slice(6)}`;
+  }
+  if (/^num[0-9]$/i.test(trimmed)) {
+    return lower;
+  }
+  if (
+    lower === "nummult" ||
+    lower === "numadd" ||
+    lower === "numsub" ||
+    lower === "numdec" ||
+    lower === "numdiv"
+  ) {
+    return lower;
+  }
+
+  return trimmed;
+}
+
+const isNumpadKey = (keyCode: string) => Boolean(NUMPAD_CHAR_MAP[keyCode]);
 
 const MODIFIER_VK: Record<number, "shift" | "control" | "alt"> = {
   0x10: "shift",
@@ -199,10 +270,13 @@ export class PlaybackEngine {
   }
 
   private keyCodeFor(evt: PlaybackEvent): string {
+    let code = "";
     if (typeof evt.vk === "number" && VK_TO_KEYCODE[evt.vk]) {
-      return VK_TO_KEYCODE[evt.vk];
+      code = VK_TO_KEYCODE[evt.vk];
+    } else {
+      code = evt.key ?? "";
     }
-    return evt.key ?? "";
+    return normalizeKeyCode(code);
   }
 
   // Identify a modifier by vk (v2 scripts) or by keyCode (v3 scripts).
@@ -266,9 +340,19 @@ export class PlaybackEngine {
           this.heldModifiers.add(mod);
         }
         this.heldKeys.add(keyCode);
-        this.send({ type: "keyDown", keyCode, modifiers: this.modifiers() });
+        const isNumpad = isNumpadKey(keyCode);
+        const modifiers = isNumpad
+          ? [...this.modifiers(), "isKeypad"]
+          : this.modifiers();
+        this.send({ type: "keyDown", keyCode, modifiers });
         if (isPrintable(keyCode)) {
-          this.send({ type: "char", keyCode, modifiers: this.modifiers() });
+          this.send({ type: "char", keyCode, modifiers });
+        } else if (isNumpad && NUMPAD_CHAR_MAP[keyCode]) {
+          this.send({
+            type: "char",
+            keyCode: NUMPAD_CHAR_MAP[keyCode],
+            modifiers,
+          });
         }
         break;
       }
@@ -276,7 +360,11 @@ export class PlaybackEngine {
         const keyCode = this.keyCodeFor(evt);
         if (!keyCode) break;
         this.heldKeys.delete(keyCode);
-        this.send({ type: "keyUp", keyCode, modifiers: this.modifiers() });
+        const isNumpad = isNumpadKey(keyCode);
+        const modifiers = isNumpad
+          ? [...this.modifiers(), "isKeypad"]
+          : this.modifiers();
+        this.send({ type: "keyUp", keyCode, modifiers });
         const mod = this.modifierFor(evt, keyCode);
         if (mod) {
           this.heldModifiers.delete(mod);

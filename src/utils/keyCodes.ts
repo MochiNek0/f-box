@@ -33,6 +33,9 @@ const STATIC_CODE_MAP: Record<string, string> = {
   NumpadSubtract: "numsub",
   NumpadDecimal: "numdec",
   NumpadDivide: "numdiv",
+  NumpadDot: "numdec",
+  NumpadEqual: "=",
+  NumpadComma: ",",
 };
 
 /**
@@ -43,7 +46,8 @@ export function domCodeToKeyCode(code: string, key: string): string | null {
   if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase();
   if (/^Digit[0-9]$/.test(code)) return code.slice(5);
   if (/^F([1-9]|1[0-2])$/.test(code)) return code;
-  if (/^Numpad[0-9]$/.test(code)) return `num${code.slice(6)}`;
+  if (/^Numpad[0-9]$/i.test(code)) return `num${code.slice(6)}`;
+  if (/^num[0-9]$/i.test(code)) return code.toLowerCase();
   if (STATIC_CODE_MAP[code]) return STATIC_CODE_MAP[code];
   // Punctuation and other printable keys: a single-character `key` is itself
   // a valid Electron keyCode.
