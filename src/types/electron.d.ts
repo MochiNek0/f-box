@@ -78,6 +78,21 @@ export interface GameGeometry {
   screenY: number;
   screenW: number;
   screenH: number;
+  // Whether the guest is showing only the game area ("game area only" crop).
+  // Cropping changes what the guest surface contains, so nx/ny fractions are
+  // only valid in the mode they were recorded in.
+  cropped?: boolean;
+}
+
+// Result of the guest-side game-area scan (guest-crop.cts), reported after
+// the crop is applied or when no playable surface was found.
+export interface GuestCropReport {
+  found: boolean;
+  tag?: string;
+  src?: string;
+  frameUrl?: string;
+  width?: number;
+  height?: number;
 }
 
 export interface AutomationTarget {
@@ -231,6 +246,15 @@ export interface IElectronAPI {
   windowControls: (action: "minimize" | "maximize" | "close") => void;
   setOpacity: (opacity: number) => void;
   checkFlash: () => Promise<boolean>;
+  toggleFullscreen: () => void;
+  // Returns a detach function.
+  onFullscreenChanged: (
+    callback: (isFullscreen: boolean) => void,
+  ) => () => void;
+  pickBackgroundImage: () => Promise<{ canceled: boolean; path?: string }>;
+  readBackgroundImage: (
+    filePath: string,
+  ) => Promise<{ success: boolean; dataUrl?: string; error?: string }>;
   updateBossKey: (key: string) => void;
   openExternal: (url: string) => void;
   getAppVersion: () => Promise<string>;

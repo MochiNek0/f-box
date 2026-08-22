@@ -11,7 +11,7 @@
     "dev:renderer": "vite",
     "dev:electron": "wait-on http://localhost:5173 && tsc -p tsconfig.electron.json && electron .",
     "start": "npm run dev",
-    "build": "vite build && tsc -p tsconfig.electron.json",
+    "build": "tsc -p tsconfig.app.json --noEmit && vite build && tsc -p tsconfig.electron.json",
     "dist": "npm run build && electron-builder --win",
     "dist:win": "npm run build && electron-builder --win",
     "dist:win:portable": "npm run build && electron-builder --win portable",

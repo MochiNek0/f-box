@@ -11,6 +11,20 @@ contextBridge.exposeInMainWorld("electron", {
     ipcRenderer.send("set-opacity", opacity);
   },
   checkFlash: () => ipcRenderer.invoke("check-flash"),
+  toggleFullscreen: () => ipcRenderer.send("toggle-fullscreen"),
+  // Fullscreen can also be entered by F11 (handled in main) or by the OS, so
+  // the renderer tracks the window's actual state instead of its own guess.
+  onFullscreenChanged: (callback: (isFullscreen: boolean) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, value: boolean) =>
+      callback(value);
+    ipcRenderer.on("fullscreen-changed", listener);
+    return () => {
+      ipcRenderer.removeListener("fullscreen-changed", listener);
+    };
+  },
+  pickBackgroundImage: () => ipcRenderer.invoke("pick-background-image"),
+  readBackgroundImage: (filePath: string) =>
+    ipcRenderer.invoke("read-background-image", filePath),
   updateBossKey: (key: string) => ipcRenderer.send("update-boss-key", key),
   openExternal: (url: string) => ipcRenderer.send("open-external", url),
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),

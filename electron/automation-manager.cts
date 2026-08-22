@@ -372,6 +372,20 @@ export class AutomationManager {
       return { success: false, error: "请先打开游戏再播放" };
     }
 
+    // Mouse coordinates are fractions of the guest surface, and the "game area
+    // only" crop changes what that surface contains — replaying across modes
+    // would click the wrong spot. Refuse instead of firing blind. Pre-crop
+    // scripts carry no flag and read as uncropped, which is what they were.
+    const recordedCrop = !!(events[0] as any)?.geometry?.cropped;
+    if (recordedCrop !== !!geo!.cropped) {
+      return {
+        success: false,
+        error: recordedCrop
+          ? "该脚本录制于「仅游戏区域」模式，请先开启该模式再播放"
+          : "该脚本录制于完整网页模式，请先关闭「仅游戏区域」再播放",
+      };
+    }
+
     this.runIsolatedPlayback(
       scriptPath,
       guest,

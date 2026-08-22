@@ -1,5 +1,12 @@
 import React from "react";
-import { Maximize2, Monitor, FlaskConical, AlertTriangle } from "lucide-react";
+import {
+  Maximize2,
+  Monitor,
+  FlaskConical,
+  AlertTriangle,
+  Image as ImageIcon,
+  X,
+} from "lucide-react";
 import {
   type GameResolutionMode,
   useSettingsStore,
@@ -27,8 +34,29 @@ const RESOLUTION_OPTIONS: Array<{
 
 export const DisplayTab: React.FC = () => {
   const { gameResolutionMode, setGameResolutionMode } = useSettingsStore();
+  const cropBackgroundPath = useSettingsStore((s) => s.cropBackgroundPath);
+  const setCropBackgroundPath = useSettingsStore(
+    (s) => s.setCropBackgroundPath,
+  );
   const [flashStability, setFlashStability] = React.useState(false);
   const [needsRestart, setNeedsRestart] = React.useState(false);
+  const [backgroundError, setBackgroundError] = React.useState<string | null>(
+    null,
+  );
+
+  const pickBackground = async () => {
+    setBackgroundError(null);
+    const picked = await window.electron.pickBackgroundImage();
+    if (picked.canceled || !picked.path) return;
+    // Validate by actually reading it, so an oversized or unreadable file is
+    // rejected here rather than silently doing nothing at crop time.
+    const read = await window.electron.readBackgroundImage(picked.path);
+    if (!read.success) {
+      setBackgroundError(read.error || "无法使用这张图片");
+      return;
+    }
+    setCropBackgroundPath(picked.path);
+  };
 
   React.useEffect(() => {
     window.electron
@@ -93,6 +121,51 @@ export const DisplayTab: React.FC = () => {
             );
           })}
         </div>
+      </section>
+
+      <section className="glass p-gr-4 rounded-gr-4">
+        <label className="flex items-center gap-gr-2 text-[10px] font-black text-zinc-500 uppercase tracking-widest mb-gr-2">
+          <ImageIcon size={12} /> 裁剪模式背景图
+        </label>
+        <p className="text-[11px] font-bold text-zinc-400 leading-snug mb-gr-3">
+          开启「仅游戏区域」后，游戏画面周围留白默认为纯黑。选一张图片作为背景，会以
+          cover 方式铺满留白区域。
+        </p>
+        <div className="flex items-center gap-gr-3">
+          <button
+            type="button"
+            onClick={pickBackground}
+            className="rounded-gr-2 border border-white/10 bg-white/5 px-gr-3 py-gr-2 text-[11px] font-black text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/10"
+          >
+            选择图片
+          </button>
+          {cropBackgroundPath && (
+            <>
+              <span
+                className="min-w-0 flex-1 truncate text-[11px] font-bold text-zinc-400"
+                title={cropBackgroundPath}
+              >
+                {cropBackgroundPath}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setBackgroundError(null);
+                  setCropBackgroundPath(null);
+                }}
+                title="恢复纯黑背景"
+                className="inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-gr-2 text-zinc-500 transition-colors hover:bg-red-500/10 hover:text-red-400"
+              >
+                <X size={14} />
+              </button>
+            </>
+          )}
+        </div>
+        {backgroundError && (
+          <div className="mt-gr-3 flex items-center gap-gr-2 rounded-gr-2 border border-red-500/30 bg-red-500/10 px-gr-3 py-gr-2 text-[11px] font-bold text-red-300">
+            <AlertTriangle size={13} /> {backgroundError}
+          </div>
+        )}
       </section>
 
       <section className="glass p-gr-4 rounded-gr-4">

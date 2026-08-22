@@ -1,6 +1,19 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import path from "path";
 import fs from "fs";
+
+// Wallpaper for the crop letterbox area. It travels to the guest as a data URL
+// (a file:// subresource in an http page is unreliable), so keep it small
+// enough that base64-ing it over IPC stays cheap.
+const MAX_BACKGROUND_BYTES = 8 * 1024 * 1024;
+const BACKGROUND_MIME: Record<string, string> = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".bmp": "image/bmp",
+};
 
 export class WindowManager {
   private mainWindow: BrowserWindow | null = null;
@@ -12,6 +25,15 @@ export class WindowManager {
   private setOpacityHandler: ((_event: any, opacity: number) => void) | null =
     null;
   private checkFlashHandler: (() => boolean | Promise<boolean>) | null = null;
+  private toggleFullScreenHandler: (() => void) | null = null;
+  private pickBackgroundHandler:
+    (() => Promise<{ canceled: boolean; path?: string }>) | null = null;
+  private readBackgroundHandler:
+    | ((
+        _event: any,
+        filePath: string,
+      ) => Promise<{ success: boolean; dataUrl?: string; error?: string }>)
+    | null = null;
 
   constructor(flashPath: string | null) {
     this.flashPath = flashPath;
@@ -58,9 +80,16 @@ export class WindowManager {
     this.setupWindowControls();
     this.setupOpacityControl();
     this.setupFlashDetection();
+    this.setupFullScreenControl();
+    this.setupBackgroundImage();
     this.setupWindowEvents();
 
     return this.mainWindow;
+  }
+
+  toggleFullScreen(): void {
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) return;
+    this.mainWindow.setFullScreen(!this.mainWindow.isFullScreen());
   }
 
   private setupWindowControls(): void {
@@ -102,11 +131,73 @@ export class WindowManager {
     ipcMain.handle("check-flash", this.checkFlashHandler);
   }
 
+  private setupFullScreenControl(): void {
+    this.toggleFullScreenHandler = () => {
+      this.toggleFullScreen();
+    };
+    ipcMain.on("toggle-fullscreen", this.toggleFullScreenHandler);
+  }
+
+  private setupBackgroundImage(): void {
+    this.pickBackgroundHandler = async () => {
+      if (!this.mainWindow || this.mainWindow.isDestroyed()) {
+        return { canceled: true };
+      }
+      const result = await dialog.showOpenDialog(this.mainWindow, {
+        title: "选择背景图片",
+        properties: ["openFile"],
+        filters: [
+          {
+            name: "图片",
+            extensions: ["jpg", "jpeg", "png", "webp", "gif", "bmp"],
+          },
+        ],
+      });
+      if (result.canceled || !result.filePaths.length) {
+        return { canceled: true };
+      }
+      return { canceled: false, path: result.filePaths[0] };
+    };
+    ipcMain.handle("pick-background-image", this.pickBackgroundHandler);
+
+    this.readBackgroundHandler = async (_event: any, filePath: string) => {
+      try {
+        if (!filePath || !fs.existsSync(filePath)) {
+          return { success: false, error: "图片文件不存在" };
+        }
+        const mime = BACKGROUND_MIME[path.extname(filePath).toLowerCase()];
+        if (!mime) {
+          return { success: false, error: "不支持的图片格式" };
+        }
+        const { size } = fs.statSync(filePath);
+        if (size > MAX_BACKGROUND_BYTES) {
+          return { success: false, error: "图片超过 8MB，请换一张更小的" };
+        }
+        const base64 = fs.readFileSync(filePath).toString("base64");
+        return { success: true, dataUrl: `data:${mime};base64,${base64}` };
+      } catch (e: any) {
+        console.error("Failed to read background image:", e);
+        return { success: false, error: e?.message || "读取图片失败" };
+      }
+    };
+    ipcMain.handle("read-background-image", this.readBackgroundHandler);
+  }
+
   private setupWindowEvents(): void {
     if (!this.mainWindow) return;
 
     this.mainWindow.on("closed", () => {
       this.mainWindow = null;
+    });
+
+    // The renderer hides its own chrome in fullscreen, so it has to know when
+    // the state changes — including changes it did not initiate (F11 handled
+    // in main, or the OS).
+    this.mainWindow.on("enter-full-screen", () => {
+      this.mainWindow?.webContents.send("fullscreen-changed", true);
+    });
+    this.mainWindow.on("leave-full-screen", () => {
+      this.mainWindow?.webContents.send("fullscreen-changed", false);
     });
 
     // Handle minimize to tray
@@ -148,6 +239,18 @@ export class WindowManager {
     if (this.checkFlashHandler) {
       ipcMain.removeHandler("check-flash");
       this.checkFlashHandler = null;
+    }
+    if (this.toggleFullScreenHandler) {
+      ipcMain.removeListener("toggle-fullscreen", this.toggleFullScreenHandler);
+      this.toggleFullScreenHandler = null;
+    }
+    if (this.pickBackgroundHandler) {
+      ipcMain.removeHandler("pick-background-image");
+      this.pickBackgroundHandler = null;
+    }
+    if (this.readBackgroundHandler) {
+      ipcMain.removeHandler("read-background-image");
+      this.readBackgroundHandler = null;
     }
   }
 }

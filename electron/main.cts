@@ -183,6 +183,15 @@ function attachInputHotkeyHandler(contents: Electron.WebContents): void {
       return;
     }
 
+    // F11 must be caught here rather than in the renderer: while playing, the
+    // focused webContents is the game guest, so a renderer keydown listener
+    // would never see it.
+    if (input.key === "F11") {
+      event.preventDefault();
+      windowManager?.toggleFullScreen();
+      return;
+    }
+
     if (!automationManager) {
       return;
     }

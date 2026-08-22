@@ -32,6 +32,11 @@ export interface GameGeometry {
   screenY: number;
   screenW: number;
   screenH: number;
+  // Whether the guest is showing only the game area ("game area only" crop).
+  // nx/ny are fractions of the guest surface, and cropping changes what that
+  // surface contains, so a script only replays correctly in the mode it was
+  // recorded in. Absent on pre-crop scripts, which read as false.
+  cropped?: boolean;
 }
 
 // The sentinel event stored at index 0 of a v2+ script. `type:"meta"` is

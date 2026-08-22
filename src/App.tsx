@@ -14,6 +14,11 @@ import { useSettingsStore } from "./store/useSettingsStore";
 import { useRecordingStore } from "./store/useRecordingStore";
 import { usePointPickStore } from "./store/usePointPickStore";
 import { initPlaybackStatusListener } from "./store/usePlaybackStore";
+import { initSpeedListeners } from "./store/useSpeedStore";
+import {
+  initFullscreenListener,
+  useFullscreenStore,
+} from "./store/useFullscreenStore";
 import { preprocessImage } from "./utils/imageProcess";
 
 const App: React.FC = () => {
@@ -26,6 +31,10 @@ const App: React.FC = () => {
   // ClickerTab is waiting for a mouse-position pick on the game view — step
   // Settings aside (without unmounting it) so the game underneath is clickable.
   const isPickingPoint = usePointPickStore((s) => !!s.pending);
+  // In fullscreen the title/tab bars step aside entirely; GameView's own
+  // toolbar becomes the hover-revealed one (it has 返回库 and the fullscreen
+  // toggle, so nothing becomes unreachable).
+  const isFullscreen = useFullscreenStore((s) => s.isFullscreen);
 
   const handleOpenRecorder = (name: string) => {
     setInitialRecordName(name);
@@ -51,6 +60,12 @@ const App: React.FC = () => {
     // App-lifetime playback state tracking (guarded against re-init).
     if (window.electron?.automation) {
       initPlaybackStatusListener();
+    }
+    initFullscreenListener();
+    // F1/F2 and the speed watchdog must keep working in fullscreen, where the
+    // title bar (which used to own these listeners) is unmounted.
+    if (window.electron?.speed) {
+      initSpeedListeners();
     }
 
     const checkFlash = async () => {
@@ -185,7 +200,9 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden text-zinc-100 bg-zinc-950">
-      <TitleBar onSettingsClick={() => setIsSettingsOpen(true)} />
+      {!isFullscreen && (
+        <TitleBar onSettingsClick={() => setIsSettingsOpen(true)} />
+      )}
 
       <div className="flex flex-grow overflow-hidden">
         <div className="flex-grow flex flex-col relative overflow-hidden">
@@ -193,7 +210,7 @@ const App: React.FC = () => {
             <FlashTutorial />
           ) : (
             <>
-              <TabBar />
+              {!isFullscreen && <TabBar />}
               <main className="flex-grow flex flex-col relative overflow-hidden">
                 {tabs.map((tab) => (
                   <div

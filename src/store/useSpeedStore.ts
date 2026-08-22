@@ -164,3 +164,49 @@ export const useSpeedStore = create<SpeedStatus & SpeedActions>((set, get) => ({
 
   clearMessage: () => set({ statusMessage: "" }),
 }));
+
+const isEditableTarget = (target: EventTarget | null) => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const tagName = target.tagName.toLowerCase();
+  return (
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
+    target.isContentEditable
+  );
+};
+
+// App-lifetime listeners, kept out of the speed UI component on purpose: that
+// UI lives in the title bar, which is unmounted in fullscreen, and F1/F2 plus
+// the watchdog pushes have to keep working there.
+let listenersInitialized = false;
+export function initSpeedListeners() {
+  if (listenersInitialized) return;
+  listenersInitialized = true;
+
+  void useSpeedStore.getState().fetchStatus();
+
+  window.electron?.speed?.onShortcut?.((key) => {
+    const { applyPendingSpeed, resetToOriginalSpeed } =
+      useSpeedStore.getState();
+    if (key === "F1") void applyPendingSpeed();
+    else void resetToOriginalSpeed();
+  });
+
+  // Watchdog-driven state pushes (auto re-injection after a game reload, or
+  // invalidation when the Flash process is gone).
+  window.electron?.speed?.onStateChanged?.((status) => {
+    useSpeedStore.getState().syncStatus(status);
+  });
+
+  window.addEventListener("keydown", (event) => {
+    if (isEditableTarget(event.target)) return;
+    if (event.key.toLowerCase() === "y") {
+      event.preventDefault();
+      void useSpeedStore.getState().applyPendingSpeed();
+    }
+  });
+}

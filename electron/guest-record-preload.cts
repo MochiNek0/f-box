@@ -25,6 +25,10 @@
 // =====================================================================
 import { ipcRenderer } from "electron";
 
+// The "game area only" crop shares this preload — a <webview> can only have
+// one. It registers its own IPC channel and holds its own state.
+import "./guest-crop.cjs";
+
 interface EchoPayload {
   kind: "mousedown" | "mouseup" | "mousemove" | "mousewheel";
   button: number;
