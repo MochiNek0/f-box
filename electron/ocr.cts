@@ -26,6 +26,35 @@ function discardPartialFile(dest: string): void {
   }
 }
 
+// A killed OCR process releases its handle on PaddleOCR-json.exe
+// asynchronously (kill() only signals; killProcessTree's taskkill is
+// fire-and-forget), so a delete issued right after it can still hit EBUSY.
+// Retry briefly rather than failing the whole install/uninstall.
+function removeDirWithRetry(dir: string, attempts = 5): Promise<void> {
+  const remove = () => {
+    if (typeof fs.rmSync === "function") {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } else {
+      // Fallback for older Node.js (before 14.14.0)
+      fs.rmdirSync(dir, { recursive: true });
+    }
+  };
+
+  const attempt = (left: number): Promise<void> => {
+    try {
+      remove();
+      return Promise.resolve();
+    } catch (e) {
+      if (left <= 1) return Promise.reject(e);
+      return new Promise<void>((resolve) => setTimeout(resolve, 300)).then(() =>
+        attempt(left - 1),
+      );
+    }
+  };
+
+  return attempt(attempts);
+}
+
 const CDN_OCR_URL = "https://fbox-cdn.bearbug.dpdns.org/plugins/ocr.zip";
 const GITHUB_OCR_URL =
   "https://github.com/MochiNek0/f-box/releases/download/ocr-plugin/ocr.zip";
@@ -328,14 +357,15 @@ export class OcrManager {
       console.log(`Extracting OCR plugin to ${destDir}...`);
       if (onProgress) onProgress(100); // 100% means download finished, now extracting
 
+      // A reinstall over a live OCR process fails on Windows: PaddleOCR-json.exe
+      // is still running, so its directory cannot be deleted and the install
+      // aborted with nothing but a "failed" toast. Stop it first.
+      this.kill();
+
       // Clean destination directory first to remove old version files
       if (fs.existsSync(destDir)) {
         console.log("Cleaning old OCR plugin directory...");
-        if (typeof fs.rmSync === "function") {
-          fs.rmSync(destDir, { recursive: true, force: true });
-        } else {
-          fs.rmdirSync(destDir, { recursive: true });
-        }
+        await removeDirWithRetry(destDir);
       }
       fs.mkdirSync(destDir, { recursive: true });
 
@@ -501,12 +531,7 @@ export class OcrManager {
     const dest = this.getPluginPath();
     try {
       if (fs.existsSync(dest)) {
-        if (typeof fs.rmSync === "function") {
-          fs.rmSync(dest, { recursive: true, force: true });
-        } else {
-          // Fallback for older Node.js (before 14.14.0)
-          fs.rmdirSync(dest, { recursive: true });
-        }
+        await removeDirWithRetry(dest);
       }
       return true;
     } catch (e) {

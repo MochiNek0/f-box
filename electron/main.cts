@@ -57,7 +57,16 @@ function findSystemFlashPlugin(): string | null {
         const files = fs.readdirSync(dir);
         const flashFile = files.find((file) => {
           if (flashFileName.includes("*")) {
-            const pattern = new RegExp(flashFileName.replace("*", ".*"));
+            // Anchored, with the literal dot escaped. An unanchored
+            // /pepflashplayer.*.dll/ also matches leftovers a Flash update
+            // leaves behind ("pepflashplayer64_34_0_0_380.dll.old"); Chromium
+            // then fails to load the plugin, so Flash looks present to us but
+            // no game ever runs.
+            const escaped = flashFileName
+              .split("*")
+              .map((part) => part.replace(/[.]/g, "\\."))
+              .join(".*");
+            const pattern = new RegExp(`^${escaped}$`, "i");
             return pattern.test(file);
           }
           return file === flashFileName;
