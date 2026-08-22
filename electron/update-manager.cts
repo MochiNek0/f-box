@@ -35,6 +35,18 @@ const CLOUDFLARE_UPDATE_ENDPOINTS: string[] = [
 const GITHUB_LATEST_RELEASE_API =
   "https://api.github.com/repos/MochiNek0/f-box/releases/latest";
 
+// Guards against a redirect loop turning into unbounded recursion.
+const MAX_UPDATE_REDIRECTS = 5;
+// Covers connect and idle-before-headers; a stalled download is otherwise
+// unbounded and the progress bar just sits there.
+const DOWNLOAD_TIMEOUT_MS = 30000;
+
+// Drop a partial download, then continue regardless of whether the unlink
+// succeeded (the file may be absent, or still locked on Windows).
+function discardPartialFile(dest: string, done: () => void): void {
+  fs.unlink(dest, () => done());
+}
+
 function uniqueUrls(urls: Array<string | undefined | null>): string[] {
   return Array.from(new Set(urls.filter(Boolean) as string[]));
 }
@@ -132,21 +144,48 @@ export class UpdateManager {
         const downloadDir = app.getPath("downloads");
         const zipPath = path.join(downloadDir, "F-Box-Update.zip");
 
-        const downloadFile = (downloadUrl: string): Promise<string> => {
+        // Every failure path must close the write stream before settling.
+        // The caller retries the next candidate URL against the SAME zipPath,
+        // and a stream left open from the failed attempt keeps flushing its
+        // buffered chunks into the file the retry is writing — producing a
+        // corrupt archive that still looks like a successful download.
+        const downloadFile = (
+          downloadUrl: string,
+          redirectsLeft = MAX_UPDATE_REDIRECTS,
+        ): Promise<string> => {
           return new Promise((resolve, reject) => {
-            https
-              .get(downloadUrl, (response) => {
+            let file: fs.WriteStream | null = null;
+
+            const fail = (err: Error) => {
+              if (file) {
+                file.destroy();
+                file = null;
+              }
+              discardPartialFile(zipPath, () => reject(err));
+            };
+
+            const request = https.get(
+              downloadUrl,
+              { timeout: DOWNLOAD_TIMEOUT_MS },
+              (response) => {
                 if (
                   response.statusCode === 301 ||
                   response.statusCode === 302 ||
                   response.statusCode === 307 ||
                   response.statusCode === 308
                 ) {
-                  return resolve(downloadFile(response.headers.location!));
+                  response.resume();
+                  if (redirectsLeft <= 0 || !response.headers.location) {
+                    return fail(new Error("Too many redirects"));
+                  }
+                  return resolve(
+                    downloadFile(response.headers.location, redirectsLeft - 1),
+                  );
                 }
 
                 if (response.statusCode !== 200) {
-                  return reject(new Error(`HTTP ${response.statusCode}`));
+                  response.resume();
+                  return fail(new Error(`HTTP ${response.statusCode}`));
                 }
 
                 const totalSize = parseInt(
@@ -154,7 +193,7 @@ export class UpdateManager {
                   10,
                 );
                 let downloadedSize = 0;
-                const file = fs.createWriteStream(zipPath);
+                file = fs.createWriteStream(zipPath);
 
                 response.on("data", (chunk) => {
                   downloadedSize += chunk.length;
@@ -166,17 +205,29 @@ export class UpdateManager {
                   }
                 });
 
+                // A stall after headers never trips the request timeout, which
+                // only covers connect and idle-before-response.
+                response.on("error", (err) => fail(err));
+
                 response.pipe(file);
 
                 file.on("finish", () => {
-                  file.close(() => resolve(zipPath));
+                  file?.close(() => {
+                    file = null;
+                    resolve(zipPath);
+                  });
                 });
 
-                file.on("error", (err) => {
-                  fs.unlink(zipPath, () => reject(err));
-                });
-              })
-              .on("error", reject);
+                file.on("error", (err) => fail(err));
+              },
+            );
+
+            request.on("timeout", () => {
+              request.destroy(
+                new Error(`Download timed out after ${DOWNLOAD_TIMEOUT_MS}ms`),
+              );
+            });
+            request.on("error", (err) => fail(err));
           });
         };
 

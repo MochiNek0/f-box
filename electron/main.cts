@@ -231,7 +231,7 @@ function setupInputHotkeyHandler(): void {
 
 app.on("ready", () => {
   // Initialize all managers
-  windowManager = new WindowManager(flashPath);
+  windowManager = new WindowManager(flashPath, findSystemFlashPlugin);
   shortcutManager = new ShortcutManager({ getWindow });
   configManager = new ConfigManager();
   ocrManager = new OcrManager();
@@ -256,6 +256,7 @@ app.on("ready", () => {
 
   setupExternalLinkHandler();
   setupAppVersionHandler();
+  setupRelaunchHandler();
   setupExperimentalFlagsHandler();
   setupFlashPIDHandler();
   setupOCRHandlers();
@@ -276,6 +277,17 @@ function setupExternalLinkHandler(): void {
 function setupAppVersionHandler(): void {
   ipcMain.handle("get-app-version", () => {
     return app.getVersion();
+  });
+}
+
+// --ppapi-flash-path is fixed before 'ready', so a Flash install (or an
+// auto-update that renamed the DLL) only takes effect after a full restart.
+// Offered from the Flash tutorial screen so the user does not have to hunt for
+// the tray icon to quit.
+function setupRelaunchHandler(): void {
+  ipcMain.handle("relaunch-app", () => {
+    app.relaunch();
+    app.quit();
   });
 }
 
@@ -416,6 +428,7 @@ app.on("will-quit", () => {
 
   // Remove core IPC handlers
   ipcMain.removeHandler("get-app-version");
+  ipcMain.removeHandler("relaunch-app");
   ipcMain.removeHandler("get-experimental-flags");
   ipcMain.removeHandler("set-experimental-flags");
   ipcMain.removeHandler("get-flash-pid");

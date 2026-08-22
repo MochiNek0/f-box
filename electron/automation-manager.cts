@@ -252,14 +252,19 @@ export class AutomationManager {
     );
 
     try {
-      if (!this.mainWindow()) return;
-      const image = await this.mainWindow()!.webContents.capturePage();
+      // Thrown rather than returned early: a bare return would leave the
+      // engine's breakpoint promise unresolved (playback hangs there forever)
+      // AND strand the ocrRequestMap entry. Both are handled below.
+      const win = this.mainWindow();
+      if (!win) throw new Error("Main window not available");
+
+      const image = await win.webContents.capturePage();
       const imgBuffer = image.toJPEG(80);
 
       const screenshotData =
         "data:image/jpeg;base64," + imgBuffer.toString("base64");
 
-      this.mainWindow()?.webContents.send("automation-ocr-request", {
+      win.webContents.send("automation-ocr-request", {
         requestId,
         screenshotData,
         region: { x, y, w, h },
@@ -267,6 +272,10 @@ export class AutomationManager {
       });
     } catch (e) {
       console.error("Playback OCR Request Error:", e);
+      // No renderer response is coming for this request, so handleOCRResponse
+      // — the only other place that deletes — will never run for it. Drop the
+      // bookkeeping here or the map grows for the life of the process.
+      this.ocrRequestMap.delete(requestId);
       // A capture failure is an OCR failure: force a stop, otherwise a
       // "stop on text X" script loops forever while capture keeps failing.
       this.resolveBreakpoint(requestId, "stop");
@@ -762,12 +771,6 @@ export class AutomationManager {
         }
         const guest = webContents.fromId(payload.webContentsId);
         if (!guest || guest.isDestroyed()) return;
-        // [DEBUG coord] recording-time forwarded injection
-        if (payload.event.type === "mouseDown" || payload.event.type === "mouseUp") {
-          console.log(
-            `[REC-FWD] type=${payload.event.type} x=${payload.event.x} y=${payload.event.y} button=${payload.event.button}`,
-          );
-        }
         try {
           guest.sendInputEvent(payload.event);
         } catch (e) {

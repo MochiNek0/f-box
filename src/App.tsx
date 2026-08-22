@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { TitleBar } from "./components/app/TitleBar";
 import { TabBar } from "./components/app/TabBar";
 import { GameLibrary } from "./components/app/GameLibrary";
@@ -21,8 +21,30 @@ import {
 } from "./store/useFullscreenStore";
 import { preprocessImage } from "./utils/imageProcess";
 
+// Resolve Flash status without touching React state, so the caller applies it
+// in one update after an await — a synchronous setState in an effect body is
+// what react-hooks/set-state-in-effect warns about.
+const readFlashStatus = async (): Promise<{
+  active: boolean;
+  needsRestart: boolean;
+}> => {
+  if (!window.electron?.checkFlash) {
+    console.warn("Electron bridge not found");
+    return { active: false, needsRestart: false };
+  }
+  try {
+    return await window.electron.checkFlash();
+  } catch (e) {
+    console.error("Failed to check flash:", e);
+    return { active: false, needsRestart: false };
+  }
+};
+
 const App: React.FC = () => {
   const [hasFlash, setHasFlash] = useState<boolean | null>(null);
+  // Flash exists on disk but not the copy this process launched with, so it
+  // can only be picked up by restarting. Drives the tutorial's restart prompt.
+  const [flashNeedsRestart, setFlashNeedsRestart] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isRecorderOpen, setIsRecorderOpen] = useState(false);
   const [initialRecordName, setInitialRecordName] = useState("");
@@ -50,6 +72,15 @@ const App: React.FC = () => {
   const { tabs, activeTabId } = useTabStore();
   const { bossKey } = useSettingsStore();
 
+  // Re-runnable so the Flash tutorial can offer a "check again" button: a
+  // launch that lands while Flash's auto-updater is swapping the DLL sees no
+  // plugin, and without a retry that transient miss looks permanent.
+  const runFlashCheck = useCallback(async () => {
+    const status = await readFlashStatus();
+    setHasFlash(status.active);
+    setFlashNeedsRestart(status.needsRestart);
+  }, []);
+
   useEffect(() => {
     if (window.electron?.updateBossKey) {
       window.electron.updateBossKey(bossKey);
@@ -68,21 +99,13 @@ const App: React.FC = () => {
       initSpeedListeners();
     }
 
-    const checkFlash = async () => {
-      if (window.electron && window.electron.checkFlash) {
-        try {
-          const result = await window.electron.checkFlash();
-          setHasFlash(result);
-        } catch (e) {
-          console.error("Failed to check flash:", e);
-          setHasFlash(false);
-        }
-      } else {
-        console.warn("Electron bridge not found");
-        setHasFlash(false);
-      }
-    };
-    void checkFlash();
+    // Applied from the promise callback rather than awaited into the effect
+    // body: setState reached synchronously from an effect is what
+    // react-hooks/set-state-in-effect flags.
+    void readFlashStatus().then((status) => {
+      setHasFlash(status.active);
+      setFlashNeedsRestart(status.needsRestart);
+    });
 
     // OCR Request Listener for Playback. Registered synchronously (not after
     // an await) so the effect cleanup always pairs with the registration —
@@ -207,7 +230,10 @@ const App: React.FC = () => {
       <div className="flex flex-grow overflow-hidden">
         <div className="flex-grow flex flex-col relative overflow-hidden">
           {!hasFlash ? (
-            <FlashTutorial />
+            <FlashTutorial
+              needsRestart={flashNeedsRestart}
+              onRecheck={runFlashCheck}
+            />
           ) : (
             <>
               {!isFullscreen && <TabBar />}

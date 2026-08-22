@@ -245,7 +245,10 @@ export interface IElectronAPI {
   getPlatform: () => string;
   windowControls: (action: "minimize" | "maximize" | "close") => void;
   setOpacity: (opacity: number) => void;
-  checkFlash: () => Promise<boolean>;
+  // `active`: Flash is loaded in THIS session. `needsRestart`: a plugin exists
+  // on disk but not the copy the process launched with (installed, or renamed
+  // by Flash's own auto-updater, after startup) — only a restart picks it up.
+  checkFlash: () => Promise<{ active: boolean; needsRestart: boolean }>;
   toggleFullscreen: () => void;
   // Returns a detach function.
   onFullscreenChanged: (
@@ -258,6 +261,7 @@ export interface IElectronAPI {
   updateBossKey: (key: string) => void;
   openExternal: (url: string) => void;
   getAppVersion: () => Promise<string>;
+  relaunchApp: () => Promise<void>;
   getExperimentalFlags: () => Promise<{ flashStability: boolean }>;
   setExperimentalFlags: (flags: {
     flashStability?: boolean;

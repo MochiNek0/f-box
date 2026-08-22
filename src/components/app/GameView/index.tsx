@@ -755,8 +755,8 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       {toolbarVisible && (
         <div
           ref={toolbarRef}
-          className={`flex items-center justify-between px-gr-4 border-b border-white/5 absolute top-0 left-0 right-0 z-10 transition-all duration-500 hover:opacity-100 opacity-90 overflow-hidden ${
-            isFullscreen ? "h-10 bg-zinc-950/80 backdrop-blur-sm" : "h-gr-5"
+          className={`flex items-center justify-between px-gr-4 border-b border-white/5 absolute top-0 left-0 right-0 z-10 transition-all duration-500 hover:opacity-100 opacity-90 overflow-hidden h-10 ${
+            isFullscreen ? "bg-zinc-950/80 backdrop-blur-sm" : ""
           }`}
           onMouseEnter={cancelToolbarHide}
           onMouseLeave={scheduleToolbarHide}
@@ -869,9 +869,9 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
         </div>
       )}
 
-      {/* Webview Container. The toolbar's 40px of headroom only applies when
-          the toolbar is in the layout — in fullscreen it floats instead, so
-          the game gets the whole screen. */}
+      {/* Webview Container. The 40px of headroom matches the toolbar's height
+          exactly, so no black strip shows between the two — in fullscreen the
+          toolbar floats instead, so the game gets the whole screen. */}
       <div
         className={`flex-grow overflow-hidden bg-black relative ${
           isFullscreen ? "" : "pt-10"
@@ -928,10 +928,10 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
                 transform: `scale(${inverseScale})`,
                 transformOrigin: "top left",
                 imageRendering: "auto",
-                // [DIAG] Block physical mouse input from reaching the game
-                // during recording, so only the overlay's forwarded
-                // sendInputEvent reaches it. Tests whether injection produces
-                // Flash clicks.
+                // Block physical mouse input from reaching the game while the
+                // overlay is up, so the game only ever sees the overlay's
+                // forwarded sendInputEvent — otherwise every click would land
+                // twice, once physically and once injected.
                 pointerEvents: isRecordingTab || isPickingTab ? "none" : "auto",
               }}
             />

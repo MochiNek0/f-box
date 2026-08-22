@@ -209,6 +209,11 @@ export class PlaybackEngine {
   // mid-hold (e.g. a movement key) can release it instead of leaving the
   // guest with a stuck key.
   private heldKeys = new Set<string>();
+  // Same idea for mouse buttons, which matter more since scripts record
+  // genuine long-press/drag: stopping between a mousedown and its mouseup
+  // otherwise leaves Flash holding mouse capture with the button still down.
+  // The press position is kept because sendInputEvent requires coordinates.
+  private heldButtons = new Map<string, { x: number; y: number }>();
 
   constructor(
     private guest: WebContents,
@@ -306,10 +311,6 @@ export class PlaybackEngine {
             : evt.button === "middle"
               ? "middle"
               : "left";
-        // [DEBUG coord] playback-time injection
-        console.log(
-          `[PLAY] type=${evt.type} nx=${evt.nx} ny=${evt.ny} -> x=${x} y=${y} renderW=${this.geometry.renderWidth} renderH=${this.geometry.renderHeight}`,
-        );
         // Hover first, mirroring AHK's SetCursorPos before Click. In recording,
         // the move and the down arrive as SEPARATE IPC messages (separate event
         // loop ticks), giving PPAPI Flash a beat to register the hover. Injecting
@@ -324,6 +325,8 @@ export class PlaybackEngine {
           button,
           clickCount: 1,
         });
+        if (evt.type === "mousedown") this.heldButtons.set(button, { x, y });
+        else this.heldButtons.delete(button);
         break;
       }
       case "mousewheel": {
@@ -437,9 +440,23 @@ export class PlaybackEngine {
         await this.sleepUntil(this.now() + 500);
       }
     } finally {
-      // Release any keys still logically held (modifiers AND regular keys like
-      // a held movement key) so we never leave the guest stuck with a key down.
+      // Release anything still logically held (mouse buttons mid-drag, plus
+      // modifiers AND regular keys like a held movement key) so we never leave
+      // the guest stuck with an input down.
       if (!this.guest.isDestroyed()) {
+        for (const [button, pos] of this.heldButtons) {
+          try {
+            this.guest.sendInputEvent({
+              type: "mouseUp",
+              x: pos.x,
+              y: pos.y,
+              button,
+              clickCount: 1,
+            } as any);
+          } catch {
+            // guest gone; nothing to release
+          }
+        }
         for (const keyCode of this.heldKeys) {
           try {
             this.guest.sendInputEvent({ type: "keyUp", keyCode } as any);
@@ -448,6 +465,7 @@ export class PlaybackEngine {
           }
         }
       }
+      this.heldButtons.clear();
       this.heldKeys.clear();
       this.heldModifiers.clear();
       this.cb.onStatus(

@@ -15,16 +15,25 @@ const BACKGROUND_MIME: Record<string, string> = {
   ".bmp": "image/bmp",
 };
 
+// Reported by the check-flash IPC. `active` is the only thing that decides
+// whether games can run in THIS session; `needsRestart` distinguishes "no
+// Flash anywhere" from "Flash is on disk but not the copy we launched with".
+export interface FlashStatus {
+  active: boolean;
+  needsRestart: boolean;
+}
+
 export class WindowManager {
   private mainWindow: BrowserWindow | null = null;
   private flashPath: string | null = null;
+  private resolveFlashPath: () => string | null;
   private windowControlsHandler: ((
     _event: any,
     action: "minimize" | "maximize" | "close",
   ) => void) | null = null;
   private setOpacityHandler: ((_event: any, opacity: number) => void) | null =
     null;
-  private checkFlashHandler: (() => boolean | Promise<boolean>) | null = null;
+  private checkFlashHandler: (() => FlashStatus) | null = null;
   private toggleFullScreenHandler: (() => void) | null = null;
   private pickBackgroundHandler:
     (() => Promise<{ canceled: boolean; path?: string }>) | null = null;
@@ -35,8 +44,9 @@ export class WindowManager {
       ) => Promise<{ success: boolean; dataUrl?: string; error?: string }>)
     | null = null;
 
-  constructor(flashPath: string | null) {
+  constructor(flashPath: string | null, resolveFlashPath: () => string | null) {
     this.flashPath = flashPath;
+    this.resolveFlashPath = resolveFlashPath;
   }
 
   getWindow(): BrowserWindow | null {
@@ -124,9 +134,28 @@ export class WindowManager {
   }
 
   private setupFlashDetection(): void {
-    this.checkFlashHandler = () => {
-      const result = this.flashPath ? fs.existsSync(this.flashPath) : false;
-      return result;
+    // The Flash DLL carries its version in the filename, and every flash.cn
+    // install ships FlashHelperService, an auto-updating Windows service that
+    // starts with the OS. So the path resolved at launch can vanish under us
+    // (an update swaps the file), and a launch that lands mid-update can find
+    // nothing at all even though Flash is installed moments later.
+    //
+    // --ppapi-flash-path is a Chromium switch fixed before 'ready', so a
+    // rescan can never make the current session load a different DLL. Rescan
+    // only to tell the user which of the two situations they are in: Flash
+    // genuinely missing, or present but not the copy this process launched
+    // with (restart required).
+    this.checkFlashHandler = (): FlashStatus => {
+      if (this.flashPath && fs.existsSync(this.flashPath)) {
+        return { active: true, needsRestart: false };
+      }
+      let rescanned: string | null = null;
+      try {
+        rescanned = this.resolveFlashPath();
+      } catch (e) {
+        console.error("Flash rescan failed:", e);
+      }
+      return { active: false, needsRestart: !!rescanned };
     };
     ipcMain.handle("check-flash", this.checkFlashHandler);
   }

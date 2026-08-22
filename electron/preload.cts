@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld("electron", {
   updateBossKey: (key: string) => ipcRenderer.send("update-boss-key", key),
   openExternal: (url: string) => ipcRenderer.send("open-external", url),
   getAppVersion: () => ipcRenderer.invoke("get-app-version"),
+  relaunchApp: () => ipcRenderer.invoke("relaunch-app"),
   getExperimentalFlags: () => ipcRenderer.invoke("get-experimental-flags"),
   setExperimentalFlags: (flags: { flashStability?: boolean }) =>
     ipcRenderer.invoke("set-experimental-flags", flags),

@@ -9,6 +9,23 @@ import AdmZip from "adm-zip";
 
 import { getFastestProxy } from "./proxy-utils.cjs";
 
+// Guards against a redirect loop turning into unbounded recursion.
+const MAX_DOWNLOAD_REDIRECTS = 5;
+// Covers connect and idle-before-headers. A download that simply stalls is
+// otherwise unbounded, and the install UI has no cancel button.
+const DOWNLOAD_TIMEOUT_MS = 30000;
+
+// Remove a partial download, tolerating the file being absent or still locked.
+// Must never throw: every caller is inside an event handler, where an
+// exception becomes an uncaught main-process error.
+function discardPartialFile(dest: string): void {
+  try {
+    if (fs.existsSync(dest)) fs.unlinkSync(dest);
+  } catch (e) {
+    console.warn("Could not remove partial download:", dest, e);
+  }
+}
+
 const CDN_OCR_URL = "https://fbox-cdn.bearbug.dpdns.org/plugins/ocr.zip";
 const GITHUB_OCR_URL =
   "https://github.com/MochiNek0/f-box/releases/download/ocr-plugin/ocr.zip";
@@ -390,19 +407,50 @@ export class OcrManager {
     url: string,
     dest: string,
     onProgress?: (percent: number) => void,
+    redirectsLeft = MAX_DOWNLOAD_REDIRECTS,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
-      const request = https.get(url, (response) => {
-        if (response.statusCode === 302 || response.statusCode === 301) {
-          // Follow redirect
-          this.downloadFile(response.headers.location!, dest, onProgress)
+      // Held so the request-level error handler can tear the stream down too:
+      // on Windows the partial file cannot be deleted while its write handle
+      // is still open, and the resulting throw would be an uncaught exception
+      // in an event handler — i.e. a main-process crash.
+      let file: fs.WriteStream | null = null;
+
+      const fail = (err: Error) => {
+        if (file) {
+          file.destroy();
+          file = null;
+        }
+        discardPartialFile(dest);
+        reject(err);
+      };
+
+      const request = https.get(url, { timeout: DOWNLOAD_TIMEOUT_MS }, (response) => {
+        if (
+          response.statusCode === 301 ||
+          response.statusCode === 302 ||
+          response.statusCode === 307 ||
+          response.statusCode === 308
+        ) {
+          response.resume();
+          if (redirectsLeft <= 0 || !response.headers.location) {
+            fail(new Error("Too many redirects while downloading OCR plugin"));
+            return;
+          }
+          this.downloadFile(
+            response.headers.location,
+            dest,
+            onProgress,
+            redirectsLeft - 1,
+          )
             .then(resolve)
             .catch(reject);
           return;
         }
 
         if (response.statusCode !== 200) {
-          reject(new Error(`Failed to download: ${response.statusCode}`));
+          response.resume();
+          fail(new Error(`Failed to download: ${response.statusCode}`));
           return;
         }
 
@@ -412,21 +460,14 @@ export class OcrManager {
         );
         let downloadedSize = 0;
 
-        const file = fs.createWriteStream(dest);
+        file = fs.createWriteStream(dest);
         // Without this, a write failure (disk full, EPERM, locked path) emits
         // an unhandled 'error' on the stream and crashes the main process, and
         // the promise never settles.
-        file.on("error", (err) => {
-          file.close();
-          if (fs.existsSync(dest)) {
-            try {
-              fs.unlinkSync(dest);
-            } catch {
-              // best-effort cleanup
-            }
-          }
-          reject(err);
-        });
+        file.on("error", (err) => fail(err));
+        // A stall after the response has started never reaches the request's
+        // own timeout, which only covers connect/idle before headers.
+        response.on("error", (err) => fail(err));
         response.on("data", (chunk) => {
           downloadedSize += chunk.length;
           if (totalSize > 0 && onProgress) {
@@ -440,17 +481,18 @@ export class OcrManager {
           // Wait for the OS handle to actually close before resolving —
           // install() opens the same file with AdmZip immediately, and on
           // Windows a still-open write handle causes intermittent EBUSY.
-          file.close((err) => {
+          file?.close((err) => {
+            file = null;
             if (err) reject(err);
             else resolve();
           });
         });
       });
 
-      request.on("error", (err) => {
-        if (fs.existsSync(dest)) fs.unlinkSync(dest);
-        reject(err);
+      request.on("timeout", () => {
+        request.destroy(new Error(`Download timed out after ${DOWNLOAD_TIMEOUT_MS}ms`));
       });
+      request.on("error", (err) => fail(err));
     });
   }
 

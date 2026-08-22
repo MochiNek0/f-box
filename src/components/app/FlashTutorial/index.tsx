@@ -1,15 +1,45 @@
 import React, { useState, useCallback } from "react";
-import { Download, AlertCircle, ExternalLink, X, ZoomIn } from "lucide-react";
+import {
+  Download,
+  AlertCircle,
+  ExternalLink,
+  X,
+  ZoomIn,
+  RefreshCw,
+  RotateCcw,
+} from "lucide-react";
 import { Modal } from "../../common/Modal";
 import { Button } from "../../common/Button";
 import { IconButton } from "../../common/IconButton";
 import tutorialImage from "../../../assets/tutorial.webp";
 
-export const FlashTutorial: React.FC = () => {
+interface FlashTutorialProps {
+  // Flash is on disk but not the copy this process launched with — the
+  // Chromium plugin path is fixed before startup, so only a restart picks it
+  // up. Common right after an install, and after Flash's own auto-updater
+  // renames the DLL under a running app.
+  needsRestart: boolean;
+  onRecheck: () => void | Promise<void>;
+}
+
+export const FlashTutorial: React.FC<FlashTutorialProps> = ({
+  needsRestart,
+  onRecheck,
+}) => {
   const [showModal, setShowModal] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [rechecking, setRechecking] = useState(false);
 
   const handleClosePreview = useCallback(() => setShowPreview(false), []);
+
+  const handleRecheck = useCallback(async () => {
+    setRechecking(true);
+    try {
+      await onRecheck();
+    } finally {
+      setRechecking(false);
+    }
+  }, [onRecheck]);
 
   return (
     <>
@@ -20,14 +50,37 @@ export const FlashTutorial: React.FC = () => {
               <AlertCircle className="text-red-500" size={32} />
             </div>
             <div>
-              <h1 className="text-2xl font-black uppercase tracking-tighter">未检测到 Flash 插件</h1>
+              <h1 className="text-2xl font-black uppercase tracking-tighter">
+                {needsRestart ? "Flash 插件需要重启生效" : "未检测到 Flash 插件"}
+              </h1>
               <p className="text-zinc-500 text-sm font-medium">
-                本应用需要 Pepper Flash (PPAPI) 插件才能运行游戏。
+                {needsRestart
+                  ? "已在系统中找到 Flash 插件，但本次启动没有加载它。重启应用即可。"
+                  : "本应用需要 Pepper Flash (PPAPI) 插件才能运行游戏。"}
               </p>
             </div>
           </div>
 
           <div className="flex flex-col gap-gr-5">
+            {needsRestart && (
+              <div className="bg-primary/10 rounded-gr-4 p-gr-4 border border-primary/30 flex flex-col gap-gr-3">
+                <p className="text-sm text-zinc-300 font-medium">
+                  Flash 插件已安装。插件路径在应用启动时就固定了, 所以安装或更新
+                  Flash 之后必须重启本应用才能加载到。
+                </p>
+                <Button
+                  onClick={() => void window.electron.relaunchApp()}
+                  variant="primary"
+                  size="lg"
+                  fullWidth
+                  className="flex items-center justify-center gap-gr-2"
+                >
+                  <RotateCcw size={18} />
+                  <span>立即重启应用</span>
+                </Button>
+              </div>
+            )}
+
             <div className="bg-white/5 rounded-gr-4 p-gr-4 border border-white/10">
               <h2 className="text-[10px] font-black text-zinc-400 mb-gr-3 uppercase tracking-widest border-b border-white/5 pb-gr-1">
                 安装步骤
@@ -77,6 +130,20 @@ export const FlashTutorial: React.FC = () => {
                 <span>查看详细教程</span>
               </Button>
             </div>
+
+            <Button
+              onClick={() => void handleRecheck()}
+              variant="secondary"
+              fullWidth
+              disabled={rechecking}
+              className="flex items-center justify-center gap-gr-2"
+            >
+              <RefreshCw
+                size={16}
+                className={rechecking ? "animate-spin" : ""}
+              />
+              <span>{rechecking ? "检测中…" : "重新检测"}</span>
+            </Button>
 
             <div className="pt-gr-3 border-t border-border">
               <p className="text-[10px] text-zinc-600 text-center font-medium">
