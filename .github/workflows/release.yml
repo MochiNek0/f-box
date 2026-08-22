@@ -14,12 +14,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
 
@@ -49,7 +49,11 @@ jobs:
           {
             echo "## 更新内容"
             echo ""
-            git log --no-merges --pretty=format:'- %s' "$RANGE"
+            # Drop the version-bump commit — it says nothing a user cares
+            # about. `|| true` because grep exits 1 when it filters everything
+            # out, and pipefail would fail the whole step on that.
+            git log --no-merges --pretty=format:'- %s' "$RANGE" \
+              | grep -v '^- chore' || true
             echo ""
           } > notes.md
           echo "Generated notes:"
