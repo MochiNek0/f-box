@@ -126,6 +126,22 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
             case "OCR_NOT_INSTALLED":
               setStatusMessage("⚠️ 未安装 OCR 扩展，无法触发断点。请先下载。");
               break;
+            case "INPUT_REJECTED": {
+              // STATUS|INPUT_REJECTED|<encoded keyCode or event label>
+              // Electron refused to parse this input, so the key/click does
+              // nothing for the whole run. Playback continues, but say so —
+              // this used to fail silently and look like a broken script.
+              let key = "";
+              try {
+                key = decodeURIComponent(parts[2] ?? "");
+              } catch {
+                key = parts[2] ?? "";
+              }
+              setStatusMessage(
+                `⚠️ 按键「${key}」无法注入，已跳过（脚本其余部分继续播放）`,
+              );
+              break;
+            }
           }
         }
       },

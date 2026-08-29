@@ -214,6 +214,9 @@ export class PlaybackEngine {
   // otherwise leaves Flash holding mouse capture with the button still down.
   // The press position is kept because sendInputEvent requires coordinates.
   private heldButtons = new Map<string, { x: number; y: number }>();
+  // Inputs Electron refused to parse, reported once each so a rejected key
+  // held across many events/loops doesn't flood the status channel.
+  private rejectedInputs = new Set<string>();
 
   constructor(
     private guest: WebContents,
@@ -259,10 +262,24 @@ export class PlaybackEngine {
       if (this.guest.isDestroyed()) {
         // Guest destroyed mid-flight; end playback.
         this.shouldStop = true;
-      } else {
-        // Malformed event (e.g. a keyCode Electron can't parse) — skip this
-        // event rather than silently killing the whole run.
-        console.error("sendInputEvent failed:", e);
+        return;
+      }
+      // Malformed event (e.g. a keyCode Electron can't parse). Keep playing —
+      // one bad step shouldn't kill the run — but do NOT fail silently: an
+      // unparsable keyCode means that key does nothing all run long, which
+      // previously looked like "the key is broken" with no clue why.
+      // Report each distinct offender once (a held key can emit thousands of
+      // events, and every loop repeats them).
+      const label =
+        typeof event?.keyCode === "string"
+          ? event.keyCode
+          : `${event?.type ?? "unknown"}${event?.button ? `/${event.button}` : ""}`;
+      console.error("sendInputEvent failed:", event, e);
+      if (!this.rejectedInputs.has(label)) {
+        this.rejectedInputs.add(label);
+        this.cb.onStatus(
+          `STATUS|INPUT_REJECTED|${encodeURIComponent(label)}`,
+        );
       }
     }
   }
