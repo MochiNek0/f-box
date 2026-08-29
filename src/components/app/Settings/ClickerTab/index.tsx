@@ -26,6 +26,55 @@ const SCRIPT_VERSION = 3;
 
 const MOUSE_BUTTON_KEYS = ["LButton", "RButton", "MButton", "XButton1", "XButton2"];
 
+// Injectable via sendInputEvent: left/middle/right only.
+const UNSUPPORTED_MOUSE_KEYS = ["XButton1", "XButton2"];
+
+// Picker label -> the `button` value PlaybackEngine expects.
+const MOUSE_BUTTON_EVENT_NAMES: Record<string, string> = {
+  LButton: "left",
+  RButton: "right",
+  MButton: "middle",
+};
+
+// KEY_GROUPS labels (see ../constants.ts) -> legal Electron sendInputEvent
+// keyCodes. The picker shows AHK-flavored names ("Enter", "PgUp", "Ctrl",
+// "LShift") that Electron does not accept; without this mapping they reach
+// sendInputEvent verbatim, throw, and get swallowed by PlaybackEngine.send(),
+// so the key silently does nothing during playback.
+const MAIN_KEY_ALIASES: Record<string, string> = {
+  enter: "Return",
+  return: "Return",
+  space: "Space",
+  escape: "Escape",
+  esc: "Escape",
+  tab: "Tab",
+  backspace: "Backspace",
+  delete: "Delete",
+  del: "Delete",
+  insert: "Insert",
+  home: "Home",
+  end: "End",
+  pgup: "PageUp",
+  pageup: "PageUp",
+  pgdn: "PageDown",
+  pagedown: "PageDown",
+  capslock: "CapsLock",
+  up: "Up",
+  down: "Down",
+  left: "Left",
+  right: "Right",
+  shift: "Shift",
+  lshift: "Shift",
+  rshift: "Shift",
+  ctrl: "Control",
+  control: "Control",
+  lctrl: "Control",
+  rctrl: "Control",
+  alt: "Alt",
+  lalt: "Alt",
+  ralt: "Alt",
+};
+
 export interface ClickerStep {
   id: string;
   key: string;
@@ -318,6 +367,16 @@ export const ClickerTab: React.FC = () => {
     if (missingCoord) {
       return { error: "❌ 请先为鼠标按键步骤选择点击坐标" };
     }
+    // Electron's sendInputEvent only accepts left/middle/right (see the
+    // MouseInputEvent docs), so XButton1/XButton2 cannot be injected at all.
+    // PlaybackEngine coerces any unknown button to "left", which would fire a
+    // wrong-but-silent left click — refuse explicitly instead.
+    const unsupportedButton = steps.find((s) => UNSUPPORTED_MOUSE_KEYS.includes(s.key));
+    if (unsupportedButton) {
+      return {
+        error: `❌ 回放不支持 ${unsupportedButton.key}（仅支持左键/右键/中键），请更换按键`,
+      };
+    }
 
     let currentT = 0;
     const events: AutomationEvent[] = [
@@ -363,13 +422,24 @@ export const ClickerTab: React.FC = () => {
           keyToSend = step.key.toUpperCase();
         } else if (step.key.length === 1) {
           keyToSend = step.key.toLowerCase();
+        } else {
+          // Multi-character main-keyboard names (space/enter/left/shift/...).
+          // Electron keyCodes are CapitalCase ("Space", "Return", "Left"), so
+          // a bare lowercase name is rejected and sendInputEvent throws — the
+          // error is swallowed by PlaybackEngine.send(), making the key look
+          // silently dead. Map through the shared table, and only fall back to
+          // the raw name when it is already a legal keyCode.
+          keyToSend = MAIN_KEY_ALIASES[lower] ?? step.key;
         }
       }
 
       currentT += step.intervalMs;
 
       if (isMouseButton) {
-        const button = step.key.toLowerCase().replace("button", "");
+        // "LButton".toLowerCase().replace("button","") yields "l"/"r"/"m",
+        // which PlaybackEngine never matches against "right"/"middle" — so
+        // right- and middle-click both silently degraded to a left click.
+        const button = MOUSE_BUTTON_EVENT_NAMES[step.key] ?? "left";
         events.push({ t: currentT, type: "mousedown", button, nx: step.nx, ny: step.ny });
         currentT += 10;
         events.push({ t: currentT, type: "mouseup", button, nx: step.nx, ny: step.ny });
