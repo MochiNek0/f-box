@@ -18,6 +18,7 @@ export interface PlaybackEvent {
   t: number;
   type:
     | "meta"
+    | "switch"
     | "mousemove"
     | "mousedown"
     | "mouseup"
@@ -37,6 +38,15 @@ export interface PlaybackEvent {
   h?: number;
   text?: string;
   t_trigger?: number;
+  // `switch` events only: the instance slot every following input goes to.
+  slot?: number;
+}
+
+// One game instance the script can drive. Slot 0 is where a script starts;
+// `switch` events move input to the others (双开).
+export interface PlaybackTarget {
+  guest: WebContents;
+  geometry: GameGeometry;
 }
 
 export interface PlaybackCallbacks {
@@ -50,6 +60,10 @@ export interface PlaybackCallbacks {
   ) => Promise<"continue" | "stop">;
   // Called once when the loop ends (natural finish or stop) for teardown.
   onDone: () => void;
+  // Ask the renderer to focus a target's <webview> element (only that
+  // establishes the input focus PPAPI Flash needs). Called on every slot
+  // switch.
+  onFocusTarget: (webContentsId: number) => void;
 }
 
 // Windows VK -> Electron keyCode. VK is the most reliable recorded field; fall
@@ -202,6 +216,10 @@ const isPrintable = (keyCode: string) => keyCode.length === 1;
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// Settle time after moving input to another instance, so the focus change
+// has landed before the next event is injected.
+const SWITCH_SETTLE_MS = 120;
+
 export class PlaybackEngine {
   private shouldStop = false;
   private heldModifiers = new Set<"shift" | "control" | "alt">();
@@ -218,16 +236,86 @@ export class PlaybackEngine {
   // held across many events/loops doesn't flood the status channel.
   private rejectedInputs = new Set<string>();
 
+  // Instance slot currently receiving input; moved by `switch` events.
+  private slot = 0;
+
   constructor(
-    private guest: WebContents,
+    private targets: PlaybackTarget[],
     private events: PlaybackEvent[],
-    private geometry: GameGeometry,
     private maxLoops: number,
     private cb: PlaybackCallbacks,
   ) {}
 
+  // The guest/geometry of the slot input currently goes to. Held state is
+  // always flushed before a switch, so nothing spans slots.
+  private get guest(): WebContents {
+    return this.targets[this.slot].guest;
+  }
+
+  private get geometry(): GameGeometry {
+    return this.targets[this.slot].geometry;
+  }
+
   stop(): void {
     this.shouldStop = true;
+  }
+
+  // Release every input still logically held on the CURRENT slot (mouse
+  // buttons mid-drag, modifiers, and regular keys like a held movement key)
+  // so a guest is never left stuck with an input down.
+  private releaseHeld(): void {
+    const guest = this.guest;
+    if (!guest.isDestroyed()) {
+      for (const [button, pos] of this.heldButtons) {
+        try {
+          guest.sendInputEvent({
+            type: "mouseUp",
+            x: pos.x,
+            y: pos.y,
+            button,
+            clickCount: 1,
+          } as any);
+        } catch {
+          // guest gone; nothing to release
+        }
+      }
+      for (const keyCode of this.heldKeys) {
+        try {
+          guest.sendInputEvent({ type: "keyUp", keyCode } as any);
+        } catch {
+          // guest gone; nothing to release
+        }
+      }
+    }
+    this.heldButtons.clear();
+    this.heldKeys.clear();
+    this.heldModifiers.clear();
+  }
+
+  // Move input to another instance slot. Anything held on the outgoing slot
+  // is released first: the events that would release it are injected into
+  // the new slot, so it would otherwise stay down for the rest of the run.
+  private async switchTo(slot: number): Promise<void> {
+    if (slot === this.slot) return;
+    const target = this.targets[slot];
+    if (!target) {
+      // Bound at startPlay, so this only happens on a hand-edited script.
+      this.cb.onStatus(`STATUS|SLOT_MISSING|${slot + 1}`);
+      this.shouldStop = true;
+      return;
+    }
+    this.releaseHeld();
+    this.slot = slot;
+    // Focus has to follow the input: PPAPI Flash only accepts injected
+    // clicks on a focused webview, and only a renderer-side <webview>.focus()
+    // establishes that (see runIsolatedPlayback).
+    this.cb.onFocusTarget(target.geometry.webContentsId);
+    try {
+      target.guest.focus();
+    } catch {
+      // guest gone; the send() guard ends the run
+    }
+    await delay(SWITCH_SETTLE_MS);
   }
 
   private now(): number {
@@ -423,6 +511,11 @@ export class PlaybackEngine {
 
         this.cb.onStatus(`STATUS|LOOP_START|${loopCount}`);
 
+        // A script always starts on slot 0; a loop that ended on another
+        // instance goes back before replaying.
+        if (this.slot !== 0) await this.switchTo(0);
+        if (this.shouldStop) break;
+
         let playStart = this.now();
         for (let i = 0; i < events.length; i++) {
           const evt = events[i];
@@ -446,6 +539,14 @@ export class PlaybackEngine {
             continue;
           }
 
+          if (evt.type === "switch") {
+            await this.sleepUntil(playStart + evt.t);
+            if (this.shouldStop) break;
+            await this.switchTo(evt.slot ?? 0);
+            if (this.shouldStop) break;
+            continue;
+          }
+
           await this.sleepUntil(playStart + evt.t);
           if (this.shouldStop) break;
           await this.executeEvent(evt);
@@ -457,34 +558,7 @@ export class PlaybackEngine {
         await this.sleepUntil(this.now() + 500);
       }
     } finally {
-      // Release anything still logically held (mouse buttons mid-drag, plus
-      // modifiers AND regular keys like a held movement key) so we never leave
-      // the guest stuck with an input down.
-      if (!this.guest.isDestroyed()) {
-        for (const [button, pos] of this.heldButtons) {
-          try {
-            this.guest.sendInputEvent({
-              type: "mouseUp",
-              x: pos.x,
-              y: pos.y,
-              button,
-              clickCount: 1,
-            } as any);
-          } catch {
-            // guest gone; nothing to release
-          }
-        }
-        for (const keyCode of this.heldKeys) {
-          try {
-            this.guest.sendInputEvent({ type: "keyUp", keyCode } as any);
-          } catch {
-            // guest gone; nothing to release
-          }
-        }
-      }
-      this.heldButtons.clear();
-      this.heldKeys.clear();
-      this.heldModifiers.clear();
+      this.releaseHeld();
       this.cb.onStatus(
         `STATUS|STOPPED|${this.shouldStop ? loopCount : loopCount - 1}`,
       );

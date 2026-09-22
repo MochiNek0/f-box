@@ -2,6 +2,7 @@ export interface AutomationEvent {
   t: number;
   type:
     | "meta"
+    | "switch"
     | "keydown"
     | "keyup"
     | "mousedown"
@@ -21,9 +22,16 @@ export interface AutomationEvent {
   h?: number;
   text?: string;
   t_trigger?: number;
+  // `switch` events only: the instance slot every following input goes to.
+  slot?: number;
   // Meta sentinel fields (type === "meta", stored at index 0).
   version?: number;
+  // Slot 0's geometry (also the only one a single-instance script has).
   geometry?: GameGeometry;
+  // One geometry per instance slot, slot 0 first (v4+ multi-instance).
+  targets?: GameGeometry[];
+  // Each slot's tab-bar position relative to slot 0's (v4+).
+  slotOffsets?: number[];
 }
 
 // Input event forwarded to main for live injection into the game webview
@@ -96,7 +104,13 @@ export interface GuestCropReport {
 }
 
 export interface AutomationTarget {
+  // The game webview playback starts from = instance slot 0.
   geometry: GameGeometry;
+  // Every live game webview, in tab-bar order; a multi-instance script binds
+  // its slots to these by recorded tab offset.
+  targets?: GameGeometry[];
+  // Index of `geometry` inside `targets`.
+  activeIndex?: number;
 }
 
 export interface OCRResultItem {

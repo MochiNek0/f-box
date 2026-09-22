@@ -24,7 +24,10 @@ import type { OcrResultEntry } from "../../../../types/electron";
 import { IconButton } from "../../../common/IconButton";
 import { NumberInput } from "../../../common/NumberInput";
 import { useTabStore } from "../../../../store/useTabStore";
-import { getGeometryForTab } from "../../../../store/gameViewRegistry";
+import {
+  getGameTargets,
+  getGeometryForTab,
+} from "../../../../store/gameViewRegistry";
 import { useRecordingStore } from "../../../../store/useRecordingStore";
 import { usePlaybackStore } from "../../../../store/usePlaybackStore";
 
@@ -241,8 +244,10 @@ export const AutomationTab: React.FC<AutomationTabProps> = ({
     setStatusMessage("正在启动播放...");
     // Grab a fresh geometry snapshot of the active game webview so a v2 script
     // can play in the background (isolated) instead of on the physical devices.
+    // `targets` adds the other open game tabs, which a multi-instance (双开)
+    // script binds its further slots to.
     const geometry = getGeometryForTab(useTabStore.getState().activeTabId);
-    const target = geometry ? { geometry } : null;
+    const target = geometry ? { geometry, ...getGameTargets() } : null;
     const result = await window.electron.automation.startPlay(name, target);
     if (result.success) {
       usePlaybackStore.getState().setPlaying(name);

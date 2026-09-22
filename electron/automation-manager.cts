@@ -9,14 +9,27 @@ import path from "path";
 import fs from "fs";
 import { OcrManager } from "./ocr.cjs";
 import { OcrResultManager, OcrResultEntry } from "./ocr-result-manager.cjs";
-import { PlaybackEngine, PlaybackEvent } from "./playback-engine.cjs";
+import {
+  PlaybackEngine,
+  PlaybackEvent,
+  PlaybackTarget,
+} from "./playback-engine.cjs";
 import {
   GameGeometry,
+  metaSlotOffsets,
+  metaTargets,
   scriptSupportsIsolation,
 } from "./automation-geometry.cjs";
 
 export interface AutomationTarget {
+  // The game webview playback starts from = instance slot 0.
   geometry: GameGeometry;
+  // Every live game webview, in TAB-BAR order. A multi-instance (双开)
+  // script binds its slots to these by recorded tab offset. Absent from
+  // callers that only ever drive one instance.
+  targets?: GameGeometry[];
+  // Index of `geometry` inside `targets` — the instance slot 0 binds to.
+  activeIndex?: number;
 }
 
 export type AutomationHotkeyKey = "F3" | "F4" | "F5";
@@ -372,38 +385,104 @@ export class AutomationManager {
       return { success: false, error: "旧格式脚本无法播放，请重新录制" };
     }
 
-    const geo = target?.geometry ?? this.activeTarget?.geometry ?? null;
-    const guest =
-      geo && typeof geo.webContentsId === "number"
-        ? webContents.fromId(geo.webContentsId)
-        : null;
-    if (!guest || guest.isDestroyed()) {
-      return { success: false, error: "请先打开游戏再播放" };
-    }
-
-    // Mouse coordinates are fractions of the guest surface, and the "game area
-    // only" crop changes what that surface contains — replaying across modes
-    // would click the wrong spot. Refuse instead of firing blind. Pre-crop
-    // scripts carry no flag and read as uncropped, which is what they were.
-    const recordedCrop = !!(events[0] as any)?.geometry?.cropped;
-    if (recordedCrop !== !!geo!.cropped) {
-      return {
-        success: false,
-        error: recordedCrop
-          ? "该脚本录制于「仅游戏区域」模式，请先开启该模式再播放"
-          : "该脚本录制于完整网页模式，请先关闭「仅游戏区域」再播放",
-      };
+    const bound = this.bindTargets(
+      events,
+      target ?? this.activeTarget ?? null,
+    );
+    if ("error" in bound) {
+      return { success: false, error: bound.error };
     }
 
     this.runIsolatedPlayback(
       scriptPath,
-      guest,
+      bound.targets,
       events as PlaybackEvent[],
-      geo!,
       repeatCount,
       hotkeySlot,
     );
     return { success: true };
+  }
+
+  // Bind the script's instance slots to live game webviews. Slot 0 is the tab
+  // playback was started from; every further slot (双开 scripts, which carry
+  // `switch` events) sits at its RECORDED tab offset from it, wrapping around
+  // the tab bar. Binding by offset rather than by the order the slots were
+  // recorded in is what makes a 1 → 3 → 2 recording replay onto the same
+  // instances.
+  private bindTargets(
+    events: any[],
+    target: AutomationTarget | null,
+  ): { targets: PlaybackTarget[] } | { error: string } {
+    const recorded = metaTargets(events[0]);
+    // A hand-edited script can reference a slot the meta never listed, so
+    // take whichever is larger.
+    const maxSwitchSlot = events.reduce(
+      (max: number, e: any) =>
+        e?.type === "switch" && typeof e.slot === "number"
+          ? Math.max(max, e.slot)
+          : max,
+      0,
+    );
+    const needed = Math.max(recorded.length, maxSwitchSlot + 1, 1);
+
+    const live = target?.targets?.length
+      ? target.targets
+      : target?.geometry
+        ? [target.geometry]
+        : [];
+    if (live.length === 0) {
+      return { error: "请先打开游戏再播放" };
+    }
+    if (live.length < needed) {
+      return {
+        error: `该脚本需要 ${needed} 个游戏标签页，当前只有 ${live.length} 个`,
+      };
+    }
+
+    const activeIndex =
+      typeof target?.activeIndex === "number" &&
+      target.activeIndex >= 0 &&
+      target.activeIndex < live.length
+        ? target.activeIndex
+        : 0;
+    const offsets = metaSlotOffsets(events[0], needed);
+    const wrap = (n: number) => ((n % live.length) + live.length) % live.length;
+    let order = offsets.map((off) => wrap(activeIndex + off));
+    if (new Set(order).size !== order.length) {
+      // The recorded layout doesn't fit the tabs that are open now (e.g. the
+      // script was recorded with a tab in between that is closed), so two
+      // slots landed on the same instance. Fall back to consecutive tabs
+      // starting at the one playback was started from.
+      order = order.map((_, i) => wrap(activeIndex + i));
+    }
+
+    const targets: PlaybackTarget[] = [];
+    for (let i = 0; i < needed; i++) {
+      const geo = live[order[i]];
+      const guest =
+        typeof geo?.webContentsId === "number"
+          ? webContents.fromId(geo.webContentsId)
+          : null;
+      if (!guest || guest.isDestroyed()) {
+        return { error: "请先打开游戏再播放" };
+      }
+      // Mouse coordinates are fractions of the guest surface, and the "game
+      // area only" crop changes what that surface contains — replaying across
+      // modes would click the wrong spot. Refuse instead of firing blind.
+      // Pre-crop scripts carry no flag and read as uncropped, which is what
+      // they were.
+      const recordedCrop = !!recorded[i]?.cropped;
+      if (recordedCrop !== !!geo.cropped) {
+        const where = needed > 1 ? `实例${i + 1}：` : "";
+        return {
+          error: recordedCrop
+            ? `${where}该脚本录制于「仅游戏区域」模式，请先开启该模式再播放`
+            : `${where}该脚本录制于完整网页模式，请先关闭「仅游戏区域」再播放`,
+        };
+      }
+      targets.push({ guest, geometry: geo });
+    }
+    return { targets };
   }
 
   private loadScriptEvents(scriptPath: string): any[] | null {
@@ -420,9 +499,8 @@ export class AutomationManager {
 
   private runIsolatedPlayback(
     scriptPath: string,
-    guest: Electron.WebContents,
+    targets: PlaybackTarget[],
     events: PlaybackEvent[],
-    geometry: GameGeometry,
     maxLoops: number,
     hotkeySlot: AutomationHotkeyKey | null,
   ): void {
@@ -433,16 +511,18 @@ export class AutomationManager {
     // focus PPAPI Flash needs to accept injected mouse clicks — only a
     // renderer-side <webview>.focus() does (the recording path relies on the
     // same call). Without this, injected clicks are silently ignored.
-    this.mainWindow()?.webContents.send(
-      "automation-focus-guest",
-      geometry.webContentsId,
-    );
+    const focusTarget = (webContentsId: number) =>
+      this.mainWindow()?.webContents.send(
+        "automation-focus-guest",
+        webContentsId,
+      );
+    focusTarget(targets[0].geometry.webContentsId);
     // Callbacks from this engine are only honored while it is still the
     // current session — a replaced engine winding down must not emit status
     // or tear down its successor.
     const session = ++this.sessionSeq;
 
-    const engine = new PlaybackEngine(guest, events, geometry, maxLoops, {
+    const engine = new PlaybackEngine(targets, events, maxLoops, {
       onStatus: (line) => {
         if (session === this.sessionSeq) this.handleEngineStatus(line);
       },
@@ -451,6 +531,9 @@ export class AutomationManager {
           ? this.requestPlaybackOCR(evt, eventIndex)
           : Promise.resolve("stop" as const),
       onDone: () => this.teardownAfterPlayback(session),
+      onFocusTarget: (webContentsId) => {
+        if (session === this.sessionSeq) focusTarget(webContentsId);
+      },
     });
     this.playbackEngine = engine;
     this.registerStopHotkey();

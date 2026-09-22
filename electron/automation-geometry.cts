@@ -13,9 +13,15 @@
 // v2 = adds the `meta` sentinel + per-mouse-event nx/ny (AHK recorder,
 //      post-processed from screen-absolute coordinates).
 // v3 = recorded by the renderer overlay: native nx/ny, `key` holds an
-//      Electron keyCode (no vk/sc). Must stay in sync with the renderer's
-//      SCRIPT_VERSION in src/store/useRecordingStore.ts.
-export const SCRIPT_VERSION = 3;
+//      Electron keyCode (no vk/sc).
+// v4 = multi-instance ("双开"): the meta sentinel carries one geometry per
+//      instance SLOT in `targets` plus each slot's tab position in
+//      `slotOffsets`, and the event stream may contain `switch` events that
+//      move every following input to another slot. Slot 0 stays in
+//      `geometry`, so single-instance scripts are shaped exactly like v3.
+// Must stay in sync with the renderer's SCRIPT_VERSION in
+// src/store/useRecordingStore.ts.
+export const SCRIPT_VERSION = 4;
 
 export interface GameGeometry {
   // Guest <webview> WebContents id (webContents.fromId).
@@ -46,11 +52,50 @@ export interface MetaEvent {
   t: 0;
   type: "meta";
   version: number;
+  // Slot 0's geometry. Also the only geometry a v3-or-older script has.
   geometry: GameGeometry;
+  // One entry per instance slot, slot 0 first (v4+). Absent on older
+  // scripts, which are single-slot by construction.
+  targets?: GameGeometry[];
+  // Each slot's tab-bar position RELATIVE to slot 0's, in the same order as
+  // `targets` (so slotOffsets[0] is always 0, and a slot recorded one tab to
+  // the left is -1). Play time re-derives the binding from these instead of
+  // from the order the slots were visited, so recording 1 → 3 → 2 still
+  // drives the right instances.
+  slotOffsets?: number[];
 }
 
-export function buildMetaEvent(geometry: GameGeometry): MetaEvent {
-  return { t: 0, type: "meta", version: SCRIPT_VERSION, geometry };
+export function buildMetaEvent(
+  targets: GameGeometry[],
+  slotOffsets: number[],
+): MetaEvent {
+  return {
+    t: 0,
+    type: "meta",
+    version: SCRIPT_VERSION,
+    geometry: targets[0],
+    targets,
+    slotOffsets,
+  };
+}
+
+// Slot geometries recorded in a script's meta sentinel, slot 0 first. Older
+// scripts carry a single `geometry`, which reads as one slot.
+export function metaTargets(meta: any): GameGeometry[] {
+  if (Array.isArray(meta?.targets) && meta.targets.length > 0) {
+    return meta.targets as GameGeometry[];
+  }
+  return meta?.geometry ? [meta.geometry as GameGeometry] : [];
+}
+
+// Recorded tab-position offsets, one per slot. Scripts saved before v4 (and
+// any whose header is incomplete) get the sequential fallback 0, 1, 2 …,
+// which is what the slot order alone implies.
+export function metaSlotOffsets(meta: any, slots: number): number[] {
+  const raw = Array.isArray(meta?.slotOffsets) ? meta.slotOffsets : [];
+  return Array.from({ length: slots }, (_, i) =>
+    typeof raw[i] === "number" ? (raw[i] as number) : i,
+  );
 }
 
 // A script can play in isolation iff it carries a v2+ meta sentinel.

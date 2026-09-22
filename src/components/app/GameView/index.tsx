@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import { useTabStore } from "../../../store/useTabStore";
 import {
+  getGameTargets,
   registerGameView,
   unregisterGameView,
 } from "../../../store/gameViewRegistry";
@@ -449,25 +450,33 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
     sendCrop(next);
   }, [cropEnabled, setGameCrop, url, sendCrop]);
 
-  // When main starts playback into this tab's guest, focus the <webview>
-  // element so injected mouse clicks reach PPAPI Flash. A main-side
-  // WebContents.focus() alone does not establish that input focus.
+  // When main starts playback into this tab's guest — or a multi-instance
+  // script switches to it — bring this tab to the front and focus the
+  // <webview> element so injected mouse clicks reach PPAPI Flash. A main-side
+  // WebContents.focus() alone does not establish that input focus, and the
+  // recording this replays was made with the tab visible and active.
   useEffect(() => {
     const detach = window.electron.automation.onFocusGuest((webContentsId) => {
-      if (webContentsIdRef.current === webContentsId) {
-        webviewRef.current?.focus();
-      }
+      if (webContentsIdRef.current !== webContentsId) return;
+      const tabStore = useTabStore.getState();
+      if (tabStore.activeTabId !== id) tabStore.setActiveTab(id);
+      webviewRef.current?.focus();
     });
     return detach;
-  }, []);
+  }, [id]);
 
   // Push the active game's target (webContentsId + geometry) to main so the
   // F3/F4/F5 hotkey playback path (which has no renderer call) can target it.
+  // `targets` carries every open game tab so a multi-instance script can bind
+  // its further slots.
   useEffect(() => {
     if (id !== activeTabId) return;
     const geometry = computeGeometry();
     if (geometry) {
-      window.electron.automation.setActiveTarget({ geometry });
+      window.electron.automation.setActiveTarget({
+        geometry,
+        ...getGameTargets(),
+      });
     }
   }, [
     id,
@@ -478,6 +487,8 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
     zoomFactor,
     resolutionScale,
     cropStatus,
+    // Opening/closing a tab changes the instance list the hotkey path sees.
+    tabs.length,
   ]);
 
   const applyZoom = useCallback(() => {
@@ -573,7 +584,10 @@ export const GameView: React.FC<GameViewProps> = ({ id, url }) => {
       if (id === activeTabId) {
         const geometry = computeGeometry();
         if (geometry) {
-          window.electron.automation.setActiveTarget({ geometry });
+          window.electron.automation.setActiveTarget({
+            geometry,
+            ...getGameTargets(),
+          });
         }
       }
       // A fresh dom-ready means the Flash plugin process may have respawned
